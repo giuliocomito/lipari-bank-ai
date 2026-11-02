@@ -71,7 +71,19 @@ Fatte il 2 novembre 2026, a mano oltre che nei test:
 
 ## La prova della ricostruzione
 
-RICOSTRUZIONE_DA_COMPILARE
+Il 2 novembre 2026: clone del repository in una cartella nuova, poi i comandi di questo
+README nell'ordine, senza aggiungere niente a memoria. Per simulare una macchina che non
+ha mai visto il progetto, con una cache di uv vuota e un'installazione di Python separata
+(`UV_CACHE_DIR` e `UV_PYTHON_INSTALL_DIR` puntati a cartelle nuove), quindi con Python
+3.12 e tutte le dipendenze scaricate da capo.
+
+- **Tempo**: 16 secondi dal `git clone` alla prima risposta di `/health`. I comandi li ha
+  lanciati uno script, quindi è il tempo della macchina; una persona che legge e incolla
+  aggiunge il tempo di lettura.
+- **Il primo punto in cui ci si blocca**: il `JWT_SECRET`. È l'unico passo che non è un
+  comando da copiare: bisogna generare il segreto e incollarlo a mano nella riga giusta
+  del `.env`. Se lo si salta, il progetto non parte e dice esattamente cosa manca.
+- Su Windows PowerShell 5.1, `curl` va scritto `curl.exe` (vedi sopra).
 
 ## L'estensione del Giorno 1: l'esempio che non mente
 
