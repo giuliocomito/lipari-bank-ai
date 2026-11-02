@@ -24,7 +24,9 @@ def variabili_lette(configurazione: type[BaseSettings]) -> set[str]:
 
 def variabili_nell_esempio(percorso: Path) -> set[str]:
     righe = percorso.read_text(encoding="utf-8").splitlines()
-    return {r.split("=", 1)[0].strip() for r in righe if "=" in r and not r.lstrip().startswith("#")}
+    return {
+        r.split("=", 1)[0].strip() for r in righe if "=" in r and not r.lstrip().startswith("#")
+    }
 
 
 def test_ogni_campo_ha_la_sua_riga_e_nessuna_riga_e_orfana():
