@@ -48,3 +48,5 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# ogni test asincrono ha il suo event loop: dichiararlo spegne l'avviso di pytest-asyncio
+asyncio_default_fixture_loop_scope = "function"
