@@ -1,9 +1,11 @@
 # LipariBank AI
 
 Il backend dell'assistente AI del LipariBank, costruito giornata per giornata nel
-bootcamp Python AI. Oggi (Giorno 1) è la fondazione: un'applicazione FastAPI con una
+bootcamp Python AI. Il Giorno 1 ha posato la fondazione: un'applicazione FastAPI con una
 sonda `/health`, una configurazione che si rifiuta di partire se manca qualcosa, e i
-controlli di qualità che girano puliti.
+controlli di qualità che girano puliti. Il Giorno 2 ha aggiunto il contratto dell'API:
+la categorizzazione di un movimento e l'importazione di un estratto CSV
+([più sotto](#giorno-2-il-contratto-dellapi)).
 
 ## Cosa serve
 
@@ -115,4 +117,106 @@ un extra opzionale `[project.optional-dependencies]`.
 
 ## La revisione del codice scritto con l'assistente
 
-In [`docs/ai-review/G1.md`](docs/ai-review/G1.md).
+Giorno 1 in [`docs/ai-review/G1.md`](docs/ai-review/G1.md), Giorno 2 in
+[`docs/ai-review/G2.md`](docs/ai-review/G2.md).
+
+## Giorno 2: il contratto dell'API
+
+L'ufficio Operations carica ogni mattina l'estratto dei movimenti, e qualche riga è
+sbagliata. Da oggi l'API classifica un movimento, importa il file intero rendendo conto
+di ogni riga, e riporta ogni errore nella stessa forma.
+
+| endpoint | cosa fa |
+|---|---|
+| `POST /api/ai/categorize` | classifica un movimento (`description`, `amount` > 0, `currency` di tre lettere, EUR se manca) in una di sei categorie, con una `confidence` fra 0 e 1. Oggi decide una regola a parole chiave; dal Giorno 4 un modello, con lo stesso contratto |
+| `POST /api/ai/movements/import` | un CSV (`multipart/form-data`, campo `file`, intestazione `date,description,amount,currency`, al massimo 2 MB): importa le righe valide e restituisce `imported_count` e `problems`, una voce per riga scartata con il suo numero nel file |
+| `POST /api/ai/chat`, `POST /api/ai/glossary` | la chat (per ora un'eco) e il glossario interno |
+
+Ogni errore, dal 404 al 500, ha la stessa busta: `timestamp`, `status`, `error` (il codice
+stabile, per il programma), `message` (per una persona), `path`, `details` (per il 422,
+un «campo: motivo» per campo). Il valore ricevuto non torna mai indietro, e un 500 non
+contiene traceback né percorsi di file.
+
+### Le nove prove
+
+Con il server acceso (`uv run uvicorn src.main:app --reload`), dalla radice del progetto.
+Fatte il 3 novembre 2026; l'esito è quello che si è visto.
+
+```bash
+# 1. la chat risponde
+curl -X POST localhost:8000/api/ai/chat -H "Content-Type: application/json" -d '{"session_id":"s-1","message":"Ciao"}'
+# 2. una bolletta è riconosciuta, con la sua confidenza
+curl -X POST localhost:8000/api/ai/categorize -H "Content-Type: application/json" -d '{"description":"Bonifico Enel Energia","amount":87.40}'
+# 3. il mio identificativo di richiesta torna uguale
+curl -i localhost:8000/health -H "X-Request-Id: ops-2026-0042"
+# 5. un corpo invalido dice quale campo, nella busta
+curl -X POST localhost:8000/api/ai/categorize -H "Content-Type: application/json" -d '{"description":"Esselunga","amount":-5,"currency":"euro"}'
+# 6. nessun traceback: rotta che non c'è, metodo sbagliato
+curl localhost:8000/non-esiste ; curl localhost:8000/api/ai/glossary
+# 7. il CSV da duecento righe, sette sbagliate
+curl -X POST localhost:8000/api/ai/movements/import -F "file=@examples/estratto-200.csv"
+# 8. e 9. un file vuoto, un file che non è un CSV
+curl -X POST localhost:8000/api/ai/movements/import -F "file=@vuoto.csv"
+curl -X POST localhost:8000/api/ai/movements/import -F "file=@immagine.png"
+```
+
+| # | prova | esito |
+|---|---|---|
+| 1 | la chat risponde | `"reply":"Echo: Ciao"` |
+| 2 | la bolletta | `UTILITIES` / `ENERGY`, `confidence` 0.8, «Parola chiave «enel».» |
+| 3 | il request-id | `X-Request-Id: ops-2026-0042`, lo stesso che ho mandato |
+| 4 | la pagina nel browser | `client/index.html` servita su `http://localhost:5173` (`uv run python -m http.server 5173 --directory client`): «Classifica» risponde 200 con la categoria |
+| 5 | corpo invalido | 422, `VALIDATION_ERROR`, `details`: `amount: Input should be greater than 0`, `currency: String should match pattern…` |
+| 6 | niente traceback | 404 e 405 nella busta; un JSON rotto dà `corpo: JSON decode error`; nel log del server, zero traceback |
+| 7 | 200 righe, 7 sbagliate | `imported_count` 193, `problems` alle righe 12, 37, 58, 91, 120, 154, 188, ognuna con il suo motivo |
+| 8 | file vuoto | 422 `INVALID_FILE` «Il file è vuoto»; il server risponde ancora |
+| 9 | file non CSV | 422 `INVALID_FILE` «Il file non è testo UTF-8: non è un CSV» |
+
+La pagina va aperta su `localhost`, non su `127.0.0.1`: per il browser sono due origini
+diverse, e la seconda non è nella lista del CORS. Il test
+`test_cors_solo_per_le_origini_ammesse` lo verifica.
+
+### La demo di due minuti
+
+1. Server e pagina accesi, `/docs` aperto: i quattro endpoint, con gli esempi di risposta.
+2. Carico `examples/estratto-200.csv`: 193 importate, sette righe segnalate. Apro il file
+   alla riga 58 e c'è `euro` al posto di `EUR`, come dice il motivo.
+3. Lo ricarico: stesso esito, con `replayed: true`. Il conto non raddoppia.
+4. Dalla pagina nel browser, «Bonifico Enel Energia»: `UTILITIES`, confidenza 0.8.
+
+### La decisione: le righe buone si importano, le sbagliate si dichiarano
+
+Duecento righe, sette sbagliate: importo le 193 buone e restituisco le sette con il loro
+numero di riga e il motivo.
+
+- Chi carica è un ufficio che lavora un file al giorno. Rifiutare il file intero per una
+  riga ferma 193 movimenti giusti in attesa di chi prepara il file, e la correzione passa
+  da un altro sistema.
+- La risposta gli dice cosa fare adesso: correggere solo quelle sette righe e caricarle.
+  Il conto torna sempre, perché `imported_count` più le voci di `problems` fa il numero
+  di righe di dati del file.
+- Il rischio della scelta è una riga sbagliata che passa per buona. Lo coprono i test:
+  dieci modi diversi di sporcare una riga, più le sette del file d'esempio, e nessuna
+  risulta importata.
+
+### L'estensione: l'importazione che si può rilanciare (la n. 3)
+
+Lo stesso file caricato due volte non raddoppia il conto. La seconda volta torna l'esito
+della prima, con `replayed: true`, e niente viene contato di nuovo.
+
+- **Scelto**: «lo stesso file» è la chiave che il chiamante dichiara nell'header
+  `Idempotency-Key`, come nei sistemi di pagamento. Se non la dichiara, è il contenuto,
+  byte per byte (sha256). Con la chiave, la stessa chiave per un file diverso è un errore
+  del chiamante: 409 `IDEMPOTENCY_KEY_REUSED`, nella busta.
+- **Scartato**: il nome del file. Ogni mattina il file si chiama `estratto.csv`, quindi
+  scartare per nome rifiuterebbe il file di domani. E se lo stesso file arriva rinominato,
+  il nome lo farebbe passare due volte.
+- **Come lo so**: [`tests/test_import_rilanciabile.py`](tests/test_import_rilanciabile.py)
+  carica due volte `examples/estratto-200.csv` e il totale resta 193. Poi con una chiave:
+  la stessa chiave e lo stesso file restituiscono la prima risposta, la stessa chiave con
+  un altro file restituisce 409, e il totale non si muove.
+
+Il registro sta in memoria finché non arriva il database (Giorno 3), e ricorda le ultime
+mille importazioni. Lo riceve l'endpoint con `Depends(get_registro)`, ed è grazie a questo
+che il test lo sostituisce con uno vuoto (`dependency_overrides`). I limiti sono nella
+[revisione](docs/ai-review/G2.md).

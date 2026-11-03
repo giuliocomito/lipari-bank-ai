@@ -3,10 +3,13 @@ import csv
 
 from pydantic import ValidationError
 
-from src.exceptions import InvalidFileError
+from src.exceptions import FileTooLargeError, InvalidFileError
 from src.types.movements import ImportProblem, ImportResult, MovementRow
 
 INTESTAZIONE = ["date", "description", "amount", "currency"]
+# La lettura è calcolo dentro un async def: tiene fermo l'event loop. 20.000 righe (750 KB)
+# costano ~80 ms; 2 MB ne costano ~0,2 s, ed è il blocco più lungo che si accetta
+MASSIMO_BYTES = 2 * 1024 * 1024
 
 
 def motivo(errore: ValidationError) -> str:
@@ -17,6 +20,8 @@ def motivo(errore: ValidationError) -> str:
 
 
 def importa_csv(contenuto: bytes) -> ImportResult:
+    if len(contenuto) > MASSIMO_BYTES:
+        raise FileTooLargeError(MASSIMO_BYTES)
     if not contenuto.strip():
         raise InvalidFileError("Il file è vuoto")
     try:

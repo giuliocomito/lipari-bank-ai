@@ -35,3 +35,7 @@ class ImportProblem(BaseModel):
 class ImportResult(BaseModel):
     imported_count: int
     problems: list[ImportProblem]
+    replayed: bool = Field(
+        default=False,
+        description="True se il file era già stato importato: è l'esito di allora, non contato",
+    )

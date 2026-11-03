@@ -20,6 +20,11 @@ class ChatSessionNotFoundError(NotFoundError):
         self.code = "CHAT_SESSION_NOT_FOUND"
 
 
+class ConflictError(AppError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(409, code, message)
+
+
 class RateLimitError(AppError):
     def __init__(self, retry_after_seconds: int) -> None:
         super().__init__(
@@ -37,3 +42,10 @@ class LLMProviderError(AppError):
 class InvalidFileError(AppError):
     def __init__(self, message: str) -> None:
         super().__init__(422, "INVALID_FILE", message)
+
+
+class FileTooLargeError(AppError):
+    def __init__(self, limite_bytes: int) -> None:
+        super().__init__(
+            413, "FILE_TOO_LARGE", f"Il file supera {limite_bytes // (1024 * 1024)} MB: dividilo"
+        )

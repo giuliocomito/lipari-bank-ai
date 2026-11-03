@@ -181,3 +181,11 @@ def test_una_data_come_timestamp_non_passa_e_il_bom_di_excel_si():
     assert r.json()["problems"] == [
         {"row": 2, "reason": "date: Value error, la data va scritta AAAA-MM-GG"}
     ]
+
+
+def test_un_file_oltre_il_limite_e_413_nella_busta(monkeypatch):
+    from src.services import movement_import
+
+    monkeypatch.setattr(movement_import, "MASSIMO_BYTES", 100)  # il limite vero è 2 MB
+    r = importa(b"date,description,amount,currency\n" + b"2026-09-01,Coop,5.00,EUR\n" * 10)
+    assert r.status_code == 413 and r.json()["error"] == "FILE_TOO_LARGE"
