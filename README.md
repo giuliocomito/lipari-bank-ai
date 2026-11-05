@@ -5,13 +5,17 @@ bootcamp Python AI. Il Giorno 1 ha posato la fondazione: un'applicazione FastAPI
 sonda `/health`, una configurazione che si rifiuta di partire se manca qualcosa, e i
 controlli di qualità che girano puliti. Il Giorno 2 ha aggiunto il contratto dell'API:
 la categorizzazione di un movimento e l'importazione di un estratto CSV
-([più sotto](#giorno-2-il-contratto-dellapi)).
+([più sotto](#giorno-2-il-contratto-dellapi)). Il Giorno 3 gli ha dato una memoria: un
+database PostgreSQL, la conversazione che sopravvive al riavvio, i conti e i movimenti
+della banca ([più sotto](#giorno-3-la-memoria)).
 
 ## Cosa serve
 
 - **uv** 0.5 o superiore — è lui a procurarsi Python 3.12, non serve installarlo a parte
   ([installazione](https://docs.astral.sh/uv/getting-started/installation/)).
 - **Git**.
+- **Docker** con Compose (Docker Desktop su Windows e macOS), acceso: dal Giorno 3 il
+  database gira in un container.
 
 ## Dalla cartella vuota alla sonda che risponde
 
@@ -22,8 +26,16 @@ uv sync --locked                 # Python 3.12 e tutte le dipendenze, alle versi
 cp .env.example .env
 uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 # incolla il risultato in .env, nella riga JWT_SECRET=
+docker compose up -d             # PostgreSQL 16 con pgvector, sulla porta 5432
+uv run alembic upgrade head      # lo schema, dalle migration: mai a mano
+uv run python -m scripts.seed_accounts   # due clienti, tre conti, quaranta movimenti
+docker compose exec postgres createdb -U lipari lipari_ai_test   # il database dei test, una volta
 uv run uvicorn src.main:app --reload
 ```
+
+Se sulla macchina c'è già un PostgreSQL, la porta 5432 è occupata e l'errore sembra di
+credenziali (`password authentication failed for user "lipari"`): in `docker-compose.yml`
+scrivi `"5433:5432"` e, nel `.env`, `localhost:5433`.
 
 In un altro terminale (su Windows PowerShell scrivi `curl.exe`: `curl` da solo è un alias
 di `Invoke-WebRequest` e risponde in un altro formato):
@@ -57,9 +69,13 @@ Si scrive nel file .env (l'elenco completo sta in .env.example) o nell'ambiente.
 ```bash
 uv run ruff check .        # lint
 uv run ruff format .       # formattazione
-uv run mypy src            # tipi, in strict
-uv run pytest              # test
+uv run mypy src scripts    # tipi, in strict
+uv run pytest              # test: dal Giorno 3 parlano con il database lipari_ai_test
 ```
+
+I test non toccano mai il database su cui lavori: `conftest.py` impone `lipari_ai_test`
+(si cambia solo con `TEST_DATABASE_URL`) e a ogni esecuzione ricostruisce lo schema dalle
+migration, da zero.
 
 ## Le prove di quello che non deve accadere
 
@@ -118,7 +134,8 @@ un extra opzionale `[project.optional-dependencies]`.
 ## La revisione del codice scritto con l'assistente
 
 Giorno 1 in [`docs/ai-review/G1.md`](docs/ai-review/G1.md), Giorno 2 in
-[`docs/ai-review/G2.md`](docs/ai-review/G2.md).
+[`docs/ai-review/G2.md`](docs/ai-review/G2.md), Giorno 3 in
+[`docs/ai-review/G3.md`](docs/ai-review/G3.md).
 
 ## Giorno 2: il contratto dell'API
 
@@ -220,3 +237,96 @@ Il registro sta in memoria finché non arriva il database (Giorno 3), e ricorda 
 mille importazioni. Lo riceve l'endpoint con `Depends(get_registro)`, ed è grazie a questo
 che il test lo sostituisce con uno vuoto (`dependency_overrides`). I limiti sono nella
 [revisione](docs/ai-review/G2.md).
+
+## Giorno 3: la memoria
+
+Fino a ieri il servizio rispondeva e dimenticava tutto al riavvio. Da oggi c'è un database
+PostgreSQL 16 (con pgvector, per il Giorno 5) in un container, lo schema ci arriva dalle
+migration Alembic in [`alembic/versions/`](alembic/versions/), la conversazione resta, e
+ci sono i dati su cui rispondere: clienti, conti e movimenti, popolati da
+[`scripts/seed_accounts.py`](scripts/seed_accounts.py). Le query stanno tutte in
+[`src/db/repos.py`](src/db/repos.py), l'unico file che sa che esiste un database.
+
+| endpoint | cosa fa |
+|---|---|
+| `POST /api/ai/chat` | con `session_id` `"new"` apre una conversazione e la salva; con l'id di una conversazione dell'utente che chiede la continua; altrimenti 404 `CHAT_SESSION_NOT_FOUND` |
+| `GET /api/ai/accounts/{iban}/movements` | i movimenti fra `date_from` e `date_to`, ognuno con l'intestatario (`owner`), da una JOIN movimento → conto → cliente |
+| `GET /api/ai/accounts/{iban}/spending` | le uscite del periodo, mese per mese, e il totale; gli importi escono come stringhe (`"20402.22"`), perché un importo non passa da un float |
+| `POST /api/ai/accounts/{iban}/movements` | l'estensione: registra un movimento e aggiorna il saldo, insieme o per niente; 201 con il saldo nuovo |
+
+Ogni lettura dei conti è filtrata nella query per il portafoglio dell'operatore, che oggi
+è finto (`mbianchi`, dal Giorno 6 arriva dal token). Il conto di un cliente di un altro
+portafoglio risponde come un conto che non esiste: stesso 404 `ACCOUNT_NOT_FOUND`,
+nessun nome. Dal Giorno 3 la chat vuole `"new"` o una conversazione esistente: la prova 1
+del Giorno 2, con `"s-1"`, oggi risponde 404.
+
+### Le prove
+
+Fatte il 5 novembre 2026, dalla radice del progetto, con Docker acceso; l'esito è quello
+che si è visto.
+
+| prova | comando | esito |
+|---|---|---|
+| la migration da zero, e due volte | `docker compose down -v`, `docker compose up -d`, `uv run alembic upgrade head` due volte | 15 secondi dal volume cancellato allo schema completo. La prima `upgrade` applica le due migration, la seconda non fa niente; `alembic current` dà `508f6dff712c (head)`, e ci sono sei tabelle. Il database dei test se ne va con il volume: si ricrea con `docker compose exec postgres createdb -U lipari lipari_ai_test` |
+| il centesimo | `uv run pytest tests/test_pw_g3.py -k centesimo` | Al seed si aggiungono 60 commissioni (0.10, 0.20, 0.30, 0.01) e quattro importi a tre decimali scritti dall'ORM, e il totale dell'endpoint coincide al centesimo con la somma fatta a mano. Gli stessi importi del seed, accumulati in virgola mobile, danno `20402.220000000016`; l'endpoint dà `"20402.22"` |
+| i tre decimali | stessa prova | Il database li arrotonda mentre li scrive, senza dirlo: 12.345 diventa 12.35 e -0.005 diventa -0.01. **Decisione**: dall'API non arrivano. `MovementIn` accetta al massimo due decimali e rifiuta lo zero, con un 422 nella busta prima del database: un importo che cambia per strada, in una banca, è un errore, non un arrotondamento |
+| la conversazione lunga | `uv run pytest tests/test_pw_g3.py -k cresce` | Una `POST /chat` fa 4 istruzioni SQL con 2 messaggi precedenti e 4 con 200. Caricando i messaggi a mano, conversazione per conversazione, 10 conversazioni costavano 11 query; con `selectinload` 2 |
+| l'interruzione a metà | `uv run python -m scripts.prova_interruzione` | Il server gira in un processo a parte, con una pausa fra le due scritture, e viene ucciso durante la pausa. Per la chat e per il movimento: a metà il database mostra la transazione aperta con l'`INSERT` già fatto, invisibile da fuori; il client non riceve risposta; dopo, il database è identico a prima (`ESITO: niente a metà`) |
+| il riavvio | `uv run uvicorn src.main:app`, una chat, il processo fermato e riavviato, la stessa `session_id` | La conversazione riprende: nel database ci sono i quattro messaggi, due prima e due dopo il riavvio |
+
+Tutto insieme: `uv run pytest` dà 39 test verdi, 10 dal Code Blueprint e 5 del Project Work.
+
+### La demo di due minuti
+
+```bash
+uv run uvicorn src.main:app --reload
+AL=$(uv run python -c "import datetime as d; print(d.date.today())")
+DAL=$(uv run python -c "import datetime as d; print(d.date.today() - d.timedelta(days=90))")
+# 1. il trimestre di Paolo Ferri: le uscite mese per mese, e il totale al centesimo
+curl "localhost:8000/api/ai/accounts/IT60X0542811101000000123/spending?date_from=$DAL&date_to=$AL"
+# 2. i suoi movimenti, ognuno con l'intestatario: 35, tutti "owner":"Paolo Ferri"
+curl "localhost:8000/api/ai/accounts/IT60X0542811101000000123/movements?date_from=$DAL&date_to=$AL"
+# 3. il conto di Anna Greco, che è nel portafoglio di un collega: 404, e nessun nome
+curl "localhost:8000/api/ai/accounts/IT60X0542811101000000789/spending?date_from=$DAL&date_to=$AL"
+# 4. una conversazione, il server fermato (Ctrl+C) e riacceso, la stessa conversazione ripresa
+curl -X POST localhost:8000/api/ai/chat -H "Content-Type: application/json" -d '{"session_id":"new","message":"Ciao"}'
+curl -X POST localhost:8000/api/ai/chat -H "Content-Type: application/json" -d '{"session_id":"<quello di prima>","message":"Ci sei ancora?"}'
+docker compose exec postgres psql -U lipari -d lipari_ai -c "SELECT role, content FROM chat_messages ORDER BY created_at;"
+```
+
+### La decisione: chi chiude la transazione
+
+- **Chi decide che il lavoro è finito**: il service, con un `commit()` alla fine
+  dell'operazione (`ChatService.chat`, `AccountService.post_movement`). Chi legge il service
+  vede dove il lavoro finisce, e un service chiamato fuori da una richiesta HTTP (il seed,
+  uno script, l'agente dei giorni dopo) si porta dietro la sua transazione.
+- **Chi se ne accorge se la conferma fallisce**: il client. Il commit avviene prima che
+  esista una risposta, quindi riceve un 500 nella busta e non un 201
+  (`test_un_commit_che_fallisce_arriva_al_client`).
+- **Scartato**: il commit in `get_db`, dopo lo `yield`. Misurato in
+  `test_l_alternativa_scartata_il_commit_dopo_lo_yield`: con lo scope di default il client
+  riceve 200 per una riga mai scritta. Con `scope="function"` riceve 500, ma ogni service
+  dipenderebbe da una dipendenza HTTP per chiudere il proprio lavoro.
+
+### L'estensione: il movimento che aggiorna il saldo (la n. 2)
+
+`POST /api/ai/accounts/{iban}/movements` scrive in due tabelle, `movements` e il saldo in
+`accounts`, e deve riuscire o fallire per intero.
+
+- **Scelto**: un service che usa due repository, nessuno dei quali fa commit, e un solo
+  commit alla fine. Il saldo si aggiorna dentro il database, in un'istruzione:
+  `UPDATE accounts SET balance = balance + :importo RETURNING balance`, senza leggerlo
+  prima.
+- **Scartato**: il commit in ciascun repository, perché se il saldo fallisce il movimento
+  resta scritto da solo e il conto non torna, senza nessun errore. E il «leggi il saldo,
+  somma in Python, riscrivi», perché due richieste insieme leggono lo stesso saldo.
+- **Come lo so**: `test_movimento_e_saldo_insieme_o_per_niente`
+  (`uv run pytest tests/test_pw_g3.py -k insieme`) fa fallire il saldo dopo che il
+  movimento è già stato scritto: 500, e movimenti e saldo restano quelli di prima. Con un
+  commit messo apposta nel repository, il test fallisce. E 20 movimenti contemporanei da
+  -1.00 su un saldo di 100.00 danno 80.00 con l'`UPDATE`, ma 99.00 con
+  leggi-somma-riscrivi: 19 aggiornamenti persi, e nessun errore.
+
+Il saldo può diventare negativo: il fido è una regola di dominio che oggi non c'è. I
+limiti misurati (la storia della chat caricata tutta, i movimenti senza paginazione) sono
+nella [revisione](docs/ai-review/G3.md).

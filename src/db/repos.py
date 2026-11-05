@@ -2,7 +2,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -107,10 +107,36 @@ class AccountRepository:
         )
         return list((await self.session.scalars(stmt)).all())
 
+    async def apply(self, account_id: str, amount: Decimal) -> Decimal | None:
+        """Somma l'importo al saldo dentro il database, in un'istruzione sola, e dà il saldo nuovo.
+
+        Nessuna lettura prima: con «leggi il saldo, somma in Python, riscrivi» due richieste
+        contemporanee leggerebbero lo stesso saldo, e una delle due somme andrebbe persa.
+        Niente commit: la transazione la chiude chi conosce l'operazione intera, il service.
+        """
+        stmt = (
+            update(Account)
+            .where(Account.id == account_id)
+            .values(balance=Account.balance + amount)
+            .returning(Account.balance)
+        )
+        return await self.session.scalar(stmt)
+
 
 class MovementRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def add(
+        self, account_id: str, booking_date: date, description: str, amount: Decimal
+    ) -> Movement:
+        """Il movimento, scritto nella transazione aperta: visibile agli altri solo al commit."""
+        mov = Movement(
+            account_id=account_id, booking_date=booking_date, description=description, amount=amount
+        )
+        self.session.add(mov)
+        await self.session.flush()  # l'id, e i vincoli che scattano qui e non al commit
+        return mov
 
     async def recent(self, username: str, account_id: str, limite: int) -> list[Movement]:
         """Gli ultimi movimenti di un conto del portafoglio, dal più recente."""

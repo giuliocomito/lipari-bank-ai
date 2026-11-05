@@ -6,13 +6,45 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.repos import AccountRepository, MovementRepository
 from src.exceptions import AccountNotFoundError, InvalidPeriodError
-from src.types.accounts import MonthlySpending, MovementOut, Spending
+from src.types.accounts import (
+    MonthlySpending,
+    MovementIn,
+    MovementOut,
+    MovementPosted,
+    Spending,
+)
 
 
 class AccountService:
     def __init__(self, session: AsyncSession) -> None:
+        self.session = session
         self.accounts = AccountRepository(session)
         self.movements = MovementRepository(session)
+
+    async def post_movement(
+        self, username: str, account_id: str, nuovo: MovementIn
+    ) -> MovementPosted:
+        """Il movimento e il saldo che cambia: due tabelle, una transazione, un commit."""
+        if await self.accounts.of_user(username, account_id) is None:
+            raise AccountNotFoundError(account_id)
+        mov = await self.movements.add(
+            account_id, nuovo.booking_date, nuovo.description, nuovo.amount
+        )
+        saldo = await self.accounts.apply(account_id, nuovo.amount)
+        if saldo is None:  # il conto è sparito fra la verifica e l'aggiornamento
+            raise AccountNotFoundError(account_id)
+        # Una volta sola, qui: se il saldo fallisce, il movimento non resta scritto da solo.
+        # Se fallisce il commit, l'eccezione esce prima che esista una risposta: il client
+        # riceve un errore, non un 201 per un movimento che non c'è.
+        await self.session.commit()
+        return MovementPosted(
+            id=mov.id,
+            account_id=account_id,
+            booking_date=mov.booking_date,
+            description=mov.description,
+            amount=mov.amount,
+            balance=saldo,
+        )
 
     async def _verifica(self, username: str, account_id: str, dal: dt.date, al: dt.date) -> None:
         if dal > al:
