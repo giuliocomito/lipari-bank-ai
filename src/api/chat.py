@@ -1,8 +1,11 @@
-# src/api/chat.py — la chat, per ora un'eco
-from datetime import UTC, datetime
+# src/api/chat.py — la chat, con la conversazione salvata nel database
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.session import get_db
+from src.services.chat_service import ChatService
 from src.types.chat import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/api/ai", tags=["Chat"])
@@ -12,14 +15,12 @@ router = APIRouter(prefix="/api/ai", tags=["Chat"])
     "/chat",  # relativo al prefix: l'URL è /api/ai/chat
     response_model=ChatResponse,
     summary="Manda un messaggio all'assistente",
-    description="Conversazione a più turni. Dal Giorno 4 risponde un modello vero.",
+    description='Conversazione a più turni: con session_id "new" se ne apre una nuova.',
 )
-async def chat(req: ChatRequest) -> ChatResponse:
-    return ChatResponse(
-        session_id=req.session_id,
-        reply=f"Echo: {req.message}",
-        tokens_used=10,
-        cost_eur=0.0001,
-        model_used="dummy",
-        created_at=datetime.now(UTC),
-    )
+async def chat(
+    req: ChatRequest,
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> ChatResponse:
+    service = ChatService(session)
+    # user_id finto: l'autenticazione vera arriva al Giorno 6, e allora questa riga cambia
+    return await service.chat(req, user_id="dummy-user")

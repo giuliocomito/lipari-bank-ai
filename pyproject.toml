@@ -5,9 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.20.1",
+    "asyncpg>=0.32.0",
     "fastapi>=0.162.0",
+    "pgvector>=0.5.1",
     "pydantic-settings>=2.16.2",
     "python-multipart>=0.0.33",
+    "sqlalchemy[asyncio]>=2.1.8",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -23,6 +27,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# le migration le scrive Alembic dal suo modello: si leggono, non si riformattano
+extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "B", "ANN", "ASYNC", "UP"]
@@ -49,5 +55,7 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# ogni test asincrono ha il suo event loop: dichiararlo spegne l'avviso di pytest-asyncio
-asyncio_default_fixture_loop_scope = "function"
+# dal Giorno 3 un solo event loop per tutta la suite: l'engine è uno per processo, e le
+# connessioni del suo pool restano legate al loop che le ha aperte
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

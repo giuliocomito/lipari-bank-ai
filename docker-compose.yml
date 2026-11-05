@@ -1,0 +1,15 @@
+# docker-compose.yml — il database accanto all'applicazione: PostgreSQL 16 con pgvector
+services:
+  postgres:
+    image: pgvector/pgvector:pg16 # PostgreSQL 16 + pgvector preinstallato, per il Giorno 5
+    environment:
+      POSTGRES_USER: lipari
+      POSTGRES_PASSWORD: lipari
+      POSTGRES_DB: lipari_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - lipari-ai-data:/var/lib/postgresql/data # i dati sopravvivono a docker compose down
+
+volumes:
+  lipari-ai-data:
