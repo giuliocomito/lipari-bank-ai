@@ -19,14 +19,28 @@ class ChatRepository:
         await self.session.flush()
         return chat
 
-    async def find_session(self, session_id: str, user_id: str) -> ChatSession | None:
-        stmt = (
-            select(ChatSession)
-            .where(ChatSession.id == session_id, ChatSession.user_id == user_id)
-            .options(selectinload(ChatSession.messages))
+    async def find_session(
+        self, session_id: str, user_id: str, con_messaggi: bool = True
+    ) -> ChatSession | None:
+        """La conversazione, solo se è di chi chiede; con tutti i messaggi, se servono."""
+        stmt = select(ChatSession).where(
+            ChatSession.id == session_id, ChatSession.user_id == user_id
         )
+        if con_messaggi:
+            stmt = stmt.options(selectinload(ChatSession.messages))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def last_messages(self, session_id: str, limite: int) -> list[ChatMessage]:
+        """Gli ultimi messaggi di una conversazione, in ordine: il database ne legge solo N."""
+        stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limite)
+        )
+        recenti = list((await self.session.scalars(stmt)).all())
+        return recenti[::-1]  # dal più vecchio al più recente, come li legge il modello
 
     async def add_message(
         self,

@@ -56,12 +56,15 @@ class ChatService:
         """La conversazione di chi chiede, e i messaggi da mandare al modello."""
         storia: list[Message] = []
         if req.session_id != "new":
-            chat = await self.repo.find_session(req.session_id, user_id)
+            chat = await self.repo.find_session(req.session_id, user_id, con_messaggi=False)
             if chat is None:
                 raise ChatSessionNotFoundError(req.session_id)
             # la storia si legge PRIMA di aggiungere il messaggio di adesso: altrimenti
-            # la domanda dell'utente arriva al modello due volte
-            storia = [Message(role=m.role, content=m.content) for m in chat.messages[-FINESTRA:]]
+            # la domanda dell'utente arriva al modello due volte. E se ne leggono solo gli
+            # ultimi FINESTRA messaggi, con un LIMIT nel database: una conversazione da 5.000
+            # messaggi non deve costare 5.000 righe lette a ogni domanda
+            recenti = await self.repo.last_messages(chat.id, FINESTRA)
+            storia = [Message(role=m.role, content=m.content) for m in recenti]
         else:
             chat = await self.repo.create_session(user_id=user_id)
         return chat, [

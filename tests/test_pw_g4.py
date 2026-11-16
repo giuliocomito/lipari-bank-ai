@@ -7,10 +7,11 @@ from decimal import Decimal
 import anyio
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from starlette.requests import ClientDisconnect
 
 from src.db.models import ChatMessage
+from src.db.repos import ChatRepository
 from src.db.session import AsyncSessionLocal, engine
 from src.exceptions import LLMProviderError
 from src.llm.factory import get_llm_provider
@@ -211,3 +212,55 @@ async def test_il_fornitore_che_cade_a_meta_lascia_il_parziale_e_un_evento_di_er
     [risposta] = await risposte_salvate()
     assert risposta.interrupted is True
     assert risposta.content == "Il saldo del conto principale "
+
+
+# ---------------------------------------------------------------- dalla revisione (G4.md)
+class ModelloCheRegistra:
+    """Un modello finto che si annota i messaggi ricevuti, e risponde «ok»."""
+
+    model = CLAUDE
+
+    def __init__(self) -> None:
+        self.ricevuti: list[Message] = []
+
+    async def complete(
+        self, messages: list[Message], max_tokens: int = 500, tools: list[ToolSpec] | None = None
+    ) -> LLMResponse:
+        self.ricevuti = list(messages)
+        return LLMResponse(content="ok", tokens_used=0, cost_eur=Decimal("0"), model=CLAUDE)
+
+    async def stream(
+        self, messages: list[Message], max_tokens: int = 500
+    ) -> AsyncGenerator[str | LLMResponse, None]:
+        yield await self.complete(messages, max_tokens)
+
+
+async def test_una_conversazione_lunga_legge_dal_database_solo_la_finestra():
+    """Revisione G4, riga 10: la storia si legge con un LIMIT, non tutta e poi tagliata."""
+    async with AsyncSessionLocal() as s:
+        repo = ChatRepository(s)
+        chat = await repo.create_session(user_id="mbianchi")
+        for i in range(500):
+            await repo.add_message(chat.id, "user" if i % 2 == 0 else "assistant", f"m{i}")
+        await s.commit()
+
+    righe_lette = 0
+
+    def conta(conn: object, cursore: object, *args: object) -> None:
+        nonlocal righe_lette
+        righe_lette += max(getattr(cursore, "rowcount", 0), 0)
+
+    modello = ModelloCheRegistra()
+    event.listen(engine.sync_engine, "after_cursor_execute", conta)
+    try:
+        async with AsyncSessionLocal() as s:
+            servizio = ChatService(s, modello, SISTEMA, Decimal("5"))
+            await servizio.chat(ChatRequest(session_id=chat.id, message="ancora"), "mbianchi")
+    finally:
+        event.remove(engine.sync_engine, "after_cursor_execute", conta)
+    # al modello: il sistema, gli ultimi 20 messaggi in ordine, la domanda
+    assert len(modello.ricevuti) == 1 + 20 + 1
+    assert [m.content for m in modello.ricevuti[1:3]] == ["m480", "m481"]
+    assert modello.ricevuti[-2].content == "m499"
+    # e dal database non escono 500 righe di storia: prima erano tutte (502)
+    assert righe_lette < 50
