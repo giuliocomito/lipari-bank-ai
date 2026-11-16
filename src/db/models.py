@@ -3,7 +3,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.session import Base
@@ -39,8 +39,13 @@ class ChatMessage(Base):
     tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_eur: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"))
     model_used: Mapped[str | None] = mapped_column(String, nullable=True)
+    # dal Giorno 4: la risposta in streaming si è fermata prima della fine (il client ha
+    # chiuso, o il fornitore è caduto). Il testo è parziale e il costo è una stima
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # indicizzata dal Giorno 4: il tetto di spesa somma i costi del giorno a ogni domanda, e
+    # senza indice PostgreSQL legge tutta la tabella (50 ms su 500.000 messaggi, 12 con)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")

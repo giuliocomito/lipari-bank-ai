@@ -19,14 +19,28 @@ class ChatRepository:
         await self.session.flush()
         return chat
 
-    async def find_session(self, session_id: str, user_id: str) -> ChatSession | None:
-        stmt = (
-            select(ChatSession)
-            .where(ChatSession.id == session_id, ChatSession.user_id == user_id)
-            .options(selectinload(ChatSession.messages))
+    async def find_session(
+        self, session_id: str, user_id: str, con_messaggi: bool = True
+    ) -> ChatSession | None:
+        """La conversazione, solo se è di chi chiede; con tutti i messaggi, se servono."""
+        stmt = select(ChatSession).where(
+            ChatSession.id == session_id, ChatSession.user_id == user_id
         )
+        if con_messaggi:
+            stmt = stmt.options(selectinload(ChatSession.messages))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def last_messages(self, session_id: str, limite: int) -> list[ChatMessage]:
+        """Gli ultimi messaggi di una conversazione, in ordine: il database ne legge solo N."""
+        stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limite)
+        )
+        recenti = list((await self.session.scalars(stmt)).all())
+        return recenti[::-1]  # dal più vecchio al più recente, come li legge il modello
 
     async def add_message(
         self,
@@ -36,6 +50,7 @@ class ChatRepository:
         tokens: int = 0,
         cost_eur: Decimal = Decimal("0"),
         model_used: str | None = None,
+        interrupted: bool = False,
     ) -> ChatMessage:
         msg = ChatMessage(
             session_id=session_id,
@@ -44,6 +59,7 @@ class ChatRepository:
             tokens=tokens,
             cost_eur=cost_eur,
             model_used=model_used,
+            interrupted=interrupted,
         )
         self.session.add(msg)
         await self.session.flush()
@@ -84,6 +100,15 @@ class ChatRepository:
         )
         return list((await self.session.execute(stmt)).all())
 
+    async def cost_between(self, inizio: datetime, fine: datetime) -> Decimal:
+        """Quanto sono costati i messaggi scritti in un intervallo: la somma, o zero."""
+        speso = await self.session.scalar(
+            select(func.coalesce(func.sum(ChatMessage.cost_eur), 0)).where(
+                ChatMessage.created_at >= inizio, ChatMessage.created_at < fine
+            )
+        )
+        return Decimal(speso or 0)
+
 
 class AccountRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -106,6 +131,15 @@ class AccountRepository:
             .order_by(Account.label)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def ids_in_portfolio(self, username: str) -> set[str]:
+        """Gli IBAN dei conti dei clienti nel portafoglio di questo operatore."""
+        stmt = (
+            select(Account.id)
+            .join(Customer, Customer.id == Account.customer_id)
+            .where(Customer.operator == username)
+        )
+        return set((await self.session.scalars(stmt)).all())
 
     async def apply(self, account_id: str, amount: Decimal) -> Decimal | None:
         """Somma l'importo al saldo dentro il database, in un'istruzione sola, e dà il saldo nuovo.
