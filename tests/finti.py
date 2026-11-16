@@ -1,6 +1,6 @@
 # tests/finti.py — i modelli finti: a livello HTTP, dove gli SDK lavorano davvero, e a eco
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from decimal import Decimal
 from typing import Any
 
@@ -209,6 +209,8 @@ def stream_anthropic(pezzi: list[str], *, entrata: int = 50, uscita: int = 10) -
 class ModelloEco:
     """Il modello dei test che non gli chiedono niente di preciso: ripete la domanda, gratis."""
 
+    model = "eco"
+
     async def complete(
         self, messages: list[Message], max_tokens: int = 500, tools: list[ToolSpec] | None = None
     ) -> LLMResponse:
@@ -221,7 +223,7 @@ class ModelloEco:
 
     async def stream(
         self, messages: list[Message], max_tokens: int = 500
-    ) -> AsyncIterator[str | LLMResponse]:
+    ) -> AsyncGenerator[str | LLMResponse, None]:
         risposta = await self.complete(messages, max_tokens)
         yield risposta.content
         yield risposta

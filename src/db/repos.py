@@ -36,6 +36,7 @@ class ChatRepository:
         tokens: int = 0,
         cost_eur: Decimal = Decimal("0"),
         model_used: str | None = None,
+        interrupted: bool = False,
     ) -> ChatMessage:
         msg = ChatMessage(
             session_id=session_id,
@@ -44,6 +45,7 @@ class ChatRepository:
             tokens=tokens,
             cost_eur=cost_eur,
             model_used=model_used,
+            interrupted=interrupted,
         )
         self.session.add(msg)
         await self.session.flush()

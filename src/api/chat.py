@@ -1,6 +1,6 @@
 # src/api/chat.py — la chat, con il modello, intera o in streaming
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.db.session import get_db
+from src.exceptions import LLMProviderError
 from src.llm.client import LLMProvider
 from src.llm.factory import get_llm_provider
 from src.llm.prompt import load_prompt
@@ -48,10 +49,16 @@ async def chat_stream(
 ) -> StreamingResponse:
     pezzi = await service.chat_stream(req, user_id=OPERATORE)  # un 404 esce qui, prima dello stream
 
-    async def eventi() -> AsyncIterator[str]:
-        async for pezzo in pezzi:
-            # ogni evento è JSON: un a capo dentro il testo non rompe il formato
-            yield f"data: {json.dumps({'text': pezzo}, ensure_ascii=False)}\n\n"
+    async def eventi() -> AsyncGenerator[str, None]:
+        # se il client chiude la pagina, il salvataggio della parte già generata lo fa il
+        # servizio (ChatService._pezzi, nel suo finally): qui non serve fare altro
+        try:
+            async for pezzo in pezzi:
+                # ogni evento è JSON: un a capo dentro il testo non rompe il formato
+                yield f"data: {json.dumps({'text': pezzo}, ensure_ascii=False)}\n\n"
+        except LLMProviderError as errore:
+            # il 200 è già partito: l'errore arriva come evento, e la risposta parziale è salvata
+            yield f"event: error\ndata: {json.dumps({'error': errore.code})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(eventi(), media_type="text/event-stream")

@@ -1,15 +1,18 @@
 # src/services/chat_service.py — la conversazione, con un modello che risponde e uno strumento
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import anyio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import ChatSession
 from src.db.repos import AccountRepository, ChatRepository
 from src.exceptions import AccountNotFoundError, ChatSessionNotFoundError, LLMProviderError
 from src.llm.client import LLMProvider
+from src.llm.stima import stima_interrotta
 from src.llm.tools import TOOLS_SCHEMA, costruisci_strumenti
 from src.llm.types import LLMResponse, Message
 from src.observability.cost_tracker import CostTracker
@@ -67,7 +70,9 @@ class ChatService:
             Message(role="user", content=req.message),
         ]
 
-    async def _salva(self, chat: ChatSession, domanda: str, risposta: LLMResponse) -> None:
+    async def _salva(
+        self, chat: ChatSession, domanda: str, risposta: LLMResponse, interrotta: bool = False
+    ) -> None:
         await self.repo.add_message(chat.id, "user", domanda)
         await self.repo.add_message(
             chat.id,
@@ -76,6 +81,7 @@ class ChatService:
             tokens=risposta.tokens_used,
             cost_eur=risposta.cost_eur,
             model_used=risposta.model,
+            interrupted=interrotta,
         )
         await self.session.commit()  # una volta, a lavoro finito: le due scritture valgono insieme
 
@@ -143,7 +149,7 @@ class ChatService:
             created_at=datetime.now(UTC),
         )
 
-    async def chat_stream(self, req: ChatRequest, user_id: str) -> AsyncIterator[str]:
+    async def chat_stream(self, req: ChatRequest, user_id: str) -> AsyncGenerator[str, None]:
         """Prepara la conversazione subito, e restituisce i pezzi da mandare al client.
 
         La preparazione avviene prima che la risposta parta: una sessione che non esiste, o il
@@ -156,13 +162,35 @@ class ChatService:
 
     async def _pezzi(
         self, chat: ChatSession, domanda: str, messaggi: list[Message]
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str, None]:
+        """I pezzi della risposta; e, comunque vada a finire, la risposta salvata con il costo.
+
+        Lo stream può finire in tre modi: arriva in fondo; il client chiude la pagina, e chi
+        ci legge chiude questo generatore (GeneratorExit) o Starlette annulla il task
+        (CancelledError); il fornitore cade a metà (LLMProviderError). Nel primo caso si salva
+        la risposta con il consumo vero. Negli altri due la parte già generata è già pagata:
+        si salva lo stesso, segnata come interrotta, con il costo stimato dai caratteri.
+        """
         finale: LLMResponse | None = None
-        async for pezzo in self.llm.stream(messaggi, self.max_tokens):
-            if isinstance(pezzo, LLMResponse):
-                finale = pezzo  # l'ultimo: il testo intero, i token e il costo
-            else:
-                yield pezzo
-        if finale is None:
+        arrivato: list[str] = []
+        try:
+            # aclosing: se questo generatore viene chiuso, si chiude anche quello del fornitore,
+            # e con lui la connessione HTTP: la generazione si ferma invece di continuare a vuoto
+            async with aclosing(self.llm.stream(messaggi, self.max_tokens)) as flusso:
+                async for pezzo in flusso:
+                    if isinstance(pezzo, LLMResponse):
+                        finale = pezzo  # l'ultimo: il testo intero, i token e il costo
+                    else:
+                        arrivato.append(pezzo)
+                        yield pezzo
+        finally:
+            # schermato: se il task è stato annullato, ogni await qui dentro verrebbe annullato
+            # a sua volta, e il salvataggio non avverrebbe mai
+            with anyio.CancelScope(shield=True):
+                if finale is not None:
+                    await self._salva(chat, domanda, finale)
+                elif arrivato:
+                    stima = stima_interrotta(self.llm.model, messaggi, "".join(arrivato))
+                    await self._salva(chat, domanda, stima, interrotta=True)
+        if finale is None and not arrivato:
             raise LLMProviderError("stream", "lo stream si è chiuso senza la risposta finale")
-        await self._salva(chat, domanda, finale)  # dopo il ciclo, una volta sola

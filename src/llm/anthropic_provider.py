@@ -1,7 +1,7 @@
 # src/llm/anthropic_provider.py — lo stesso contratto, tradotto nella lingua di Anthropic
 import json
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, Sequence
 from decimal import Decimal
 from typing import Literal
 
@@ -88,6 +88,10 @@ class AnthropicProvider:
         self._model = model
         self._effort: Effort = effort
 
+    @property
+    def model(self) -> str:
+        return self._model
+
     def _risposta(
         self, blocchi: Sequence[ContentBlock], usage: Usage, stop_reason: str | None
     ) -> LLMResponse:
@@ -128,7 +132,7 @@ class AnthropicProvider:
 
     async def stream(
         self, messages: list[Message], max_tokens: int = 500
-    ) -> AsyncIterator[str | LLMResponse]:
+    ) -> AsyncGenerator[str | LLMResponse, None]:
         sistema, resto = _dividi(messages)
         try:
             async with self._client.messages.stream(

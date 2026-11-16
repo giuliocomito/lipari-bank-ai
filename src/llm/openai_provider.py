@@ -1,5 +1,5 @@
 # src/llm/openai_provider.py — il contratto, tradotto nella lingua di OpenAI
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from decimal import Decimal
 
 import openai
@@ -65,6 +65,10 @@ class OpenAIProvider:
         self._client = client  # creato una volta, dalla factory, e iniettato
         self._model = model
 
+    @property
+    def model(self) -> str:
+        return self._model
+
     def _risposta(
         self, testo: str, usage: CompletionUsage | None, chiamate: list[ToolCall] | None = None
     ) -> LLMResponse:
@@ -101,7 +105,7 @@ class OpenAIProvider:
 
     async def stream(
         self, messages: list[Message], max_tokens: int = 500
-    ) -> AsyncIterator[str | LLMResponse]:
+    ) -> AsyncGenerator[str | LLMResponse, None]:
         testo: list[str] = []
         usage: CompletionUsage | None = None
         try:
