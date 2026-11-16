@@ -1,6 +1,7 @@
 # src/config.py — la configurazione: se manca qualcosa, il progetto non parte e dice cosa
 import re
 import sys
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field, ValidationError
@@ -32,9 +33,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
-    default_model: str = "gpt-4o-mini"
+    # dal Giorno 4 il modello è Claude: il fornitore lo sceglie il prefisso, claude- o gpt-
+    default_model: str = "claude-opus-5-5"
+    # quanto ragiona Claude prima di rispondere, e quindi quanto spende: low, medium o high
+    llm_effort: Literal["low", "medium", "high"] = "low"
     embedding_model: str = "text-embedding-3-small"
     max_tokens_per_request: int = 2000
+    daily_budget_eur: Decimal = Decimal("5.00")  # il tetto di spesa del modello, al giorno
 
     # dal Giorno 2: le pagine che possono leggere le risposte. Nel .env si scrive in JSON
     cors_origins: list[str] = ["http://localhost:5173"]
