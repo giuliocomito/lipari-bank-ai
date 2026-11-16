@@ -84,6 +84,15 @@ class ChatRepository:
         )
         return list((await self.session.execute(stmt)).all())
 
+    async def cost_between(self, inizio: datetime, fine: datetime) -> Decimal:
+        """Quanto sono costati i messaggi scritti in un intervallo: la somma, o zero."""
+        speso = await self.session.scalar(
+            select(func.coalesce(func.sum(ChatMessage.cost_eur), 0)).where(
+                ChatMessage.created_at >= inizio, ChatMessage.created_at < fine
+            )
+        )
+        return Decimal(speso or 0)
+
 
 class AccountRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -106,6 +115,15 @@ class AccountRepository:
             .order_by(Account.label)
         )
         return list((await self.session.scalars(stmt)).all())
+
+    async def ids_in_portfolio(self, username: str) -> set[str]:
+        """Gli IBAN dei conti dei clienti nel portafoglio di questo operatore."""
+        stmt = (
+            select(Account.id)
+            .join(Customer, Customer.id == Account.customer_id)
+            .where(Customer.operator == username)
+        )
+        return set((await self.session.scalars(stmt)).all())
 
     async def apply(self, account_id: str, amount: Decimal) -> Decimal | None:
         """Somma l'importo al saldo dentro il database, in un'istruzione sola, e dà il saldo nuovo.
