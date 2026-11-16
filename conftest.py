@@ -23,3 +23,19 @@ def schema() -> Iterator[None]:
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
     yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def modelli_finti() -> Iterator[None]:
+    """Nessun test chiama un modello vero: costerebbe, e risponderebbe ogni volta in un modo
+    diverso. La chat parla con un finto che ripete la domanda, la categorizzazione usa la regola
+    a parole chiave. Un test che vuole un modello preciso mette il suo, e toglie solo quello."""
+    from src.api.categorize import get_categorize_service
+    from src.llm.factory import get_llm_provider
+    from src.main import app
+    from tests.finti import CategorizzazioneARegole, ModelloEco
+
+    app.dependency_overrides[get_llm_provider] = ModelloEco
+    app.dependency_overrides[get_categorize_service] = CategorizzazioneARegole
+    yield
+    app.dependency_overrides.clear()

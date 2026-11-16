@@ -152,7 +152,7 @@ async def query_di_una_chat(messaggi_precedenti: int) -> int:
     """Quante istruzioni SQL fa una POST /chat su una conversazione che ne ha già N."""
     async with AsyncSessionLocal() as s:
         repo = ChatRepository(s)
-        chat = await repo.create_session(user_id="dummy-user")
+        chat = await repo.create_session(user_id="mbianchi")  # l'operatore della chat dal G4
         for i in range(messaggi_precedenti):
             await repo.add_message(chat.id, "user", f"messaggio {i}")
         await s.commit()

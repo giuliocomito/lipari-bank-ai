@@ -41,4 +41,4 @@ def test_lo_stesso_file_caricato_due_volte_non_raddoppia_il_conto():
         assert conflitto.json()["error"] == "IDEMPOTENCY_KEY_REUSED"
         assert registro.totale_importate == 2 * 193
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_registro)  # solo il suo: i finti del conftest restano
