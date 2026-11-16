@@ -9,6 +9,38 @@ la categorizzazione di un movimento e l'importazione di un estratto CSV
 database PostgreSQL, la conversazione che sopravvive al riavvio, i conti e i movimenti
 della banca ([più sotto](#giorno-3-la-memoria)).
 
+## Il repository e le giornate
+
+Il progetto è un unico repository che cresce un giorno alla volta. Per vedere il codice
+com'era alla consegna di una giornata c'è un'etichetta (*tag*) per ogni giorno: `g1`,
+`g2`, `g3`. Per esempio `git checkout g2` riporta il progetto alla fine del Giorno 2, e
+su GitHub la stessa etichetta si sceglie dal menu dei branch. Dal Giorno 4 il lavoro di
+ogni giornata si sviluppa su un branch `giorno-N` e arriva su `main` con una pull request:
+la pull request mostra in una pagina tutto quello che quella giornata ha cambiato.
+
+I messaggi di commit seguono la convenzione
+[Conventional Commits](https://www.conventionalcommits.org/it/v1.0.0/): un prefisso dice
+il tipo di modifica (`feat` una funzionalità, `fix` una correzione, `docs` la
+documentazione, `test` i test, `style` la formattazione) e fra parentesi il giorno, per
+esempio `feat(g3): movimento e saldo insieme`.
+
+Prima della pubblicazione, il 16 novembre 2026, gli otto commit dei primi tre giorni sono
+stati riscritti per adottare questa convenzione e sostituire l'email dell'autore con
+l'indirizzo anonimo di GitHub. Il contenuto dei file è identico, ma i codici dei commit
+sono cambiati. Le consegne dei Giorni 1-3 citano i codici vecchi: questa è la
+corrispondenza.
+
+| Codice citato nelle consegne | Codice attuale | Commit |
+|---|---|---|
+| `fb0d28e` | `d5b7226` | feat(g1): setup del progetto |
+| `9487394` | `8af6262` | docs(g1): README per un estraneo, .env.example verificato, revisione |
+| `51883b8` | `05efc1f` | style(g1): test dell'esempio, riga troppo lunga riformattata da ruff |
+| `1ea0b8c` | `8de5429` | docs(g1): README, la prova della ricostruzione cronometrata — tag `g1` |
+| `55f5df6` | `e659d1a` | feat(g2): contratti Pydantic, router, errori in una busta, middleware |
+| `6da257d` | `8e53eee` | feat(g2): import rilanciabile, limite di 2 MB, prove, decisione e revisione — tag `g2` |
+| `dd629bb` | `18d9dc9` | feat(g3): PostgreSQL in Docker, modelli SQLAlchemy 2.0, migration Alembic, repository |
+| `74352ab` | `630ac54` | feat(g3): movimento e saldo insieme, prove, decisione sul commit e revisione — tag `g3` |
+
 ## Cosa serve
 
 - **uv** 0.5 o superiore — è lui a procurarsi Python 3.12, non serve installarlo a parte
