@@ -7,7 +7,9 @@ controlli di qualità che girano puliti. Il Giorno 2 ha aggiunto il contratto de
 la categorizzazione di un movimento e l'importazione di un estratto CSV
 ([più sotto](#giorno-2-il-contratto-dellapi)). Il Giorno 3 gli ha dato una memoria: un
 database PostgreSQL, la conversazione che sopravvive al riavvio, i conti e i movimenti
-della banca ([più sotto](#giorno-3-la-memoria)).
+della banca ([più sotto](#giorno-3-la-memoria)). Il Giorno 4 lo fa rispondere con un
+modello linguistico, Claude di Anthropic, con il costo di ogni risposta e un tetto di spesa
+([più sotto](#giorno-4-il-modello-risponde)).
 
 ## Il repository e le giornate
 
@@ -84,8 +86,9 @@ La documentazione interattiva è su http://localhost:8000/docs.
 Tutte le variabili sono in [`.env.example`](.env.example), una riga commentata per
 ciascuna. Due sono obbligatorie e il progetto non parte senza: `DATABASE_URL` e
 `JWT_SECRET` (almeno 32 caratteri). Le chiavi del modello (`OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`) servono dal Giorno 4: oggi il progetto parte senza, e `/health`
-dice se ci sono senza mai mostrarne il valore.
+`ANTHROPIC_API_KEY`) servono dal Giorno 4 solo per parlare con un modello vero: il progetto
+parte anche senza, la chat risponde 503 dicendo quale chiave manca, e `/health` dice se ci
+sono senza mai mostrarne il valore. I test e le prove non ne hanno bisogno.
 
 Se manca qualcosa, il processo si ferma subito, con codice 1, e dice quale variabile e
 cosa ci va:
@@ -362,3 +365,124 @@ docker compose exec postgres psql -U lipari -d lipari_ai -c "SELECT role, conten
 Il saldo può diventare negativo: il fido è una regola di dominio che oggi non c'è. I
 limiti misurati (la storia della chat caricata tutta, i movimenti senza paginazione) sono
 nella [revisione](docs/ai-review/G3.md).
+
+## Giorno 4: il modello risponde
+
+Da questa giornata l'assistente risponde con un modello linguistico. Il modello predefinito
+è **Claude Opus 5.5** di Anthropic; OpenAI resta come seconda implementazione dello stesso
+contratto. Cinque cose sono nuove.
+
+- **Due fornitori dietro un'unica interfaccia.** `LLMProvider` ([`src/llm/client.py`](src/llm/client.py))
+  è un `Protocol`: dice che un modello deve saper rispondere per intero (`complete`) e a
+  pezzi (`stream`). Due adattatori traducono nel formato di Anthropic e di OpenAI, e una
+  factory sceglie quale usare dal nome del modello in `DEFAULT_MODEL`.
+- **Il costo di ogni risposta.** Si calcola dai token che l'API restituisce davvero, con il
+  listino in euro, e si salva accanto al messaggio. Un tetto giornaliero
+  (`DAILY_BUDGET_EUR`, 5 €) rifiuta con 429 prima di spendere.
+- **Il primo strumento.** Il modello può chiedere il saldo di un conto; il codice glielo
+  concede solo per i conti dei clienti dell'operatore, e registra i tentativi negati.
+- **Lo streaming.** `POST /api/ai/chat/stream` manda la risposta mentre si forma, come
+  Server-Sent Events.
+- **La categorizzazione con il modello.** Al posto delle parole chiave del Giorno 2, la fa
+  Claude attraverso Instructor, che valida la risposta con lo schema Pydantic.
+
+### Dove il codice si discosta dal corso
+
+Il corso è scritto per `gpt-4o-mini`. Con i modelli Claude di oggi tre indicazioni del corso
+producono un errore, e il codice le adatta.
+
+- **Niente `temperature`.** Dalla versione dell'API del 21 ottobre 2026 una richiesta che la
+  contiene riceve un 400, e l'SDK non ha più il parametro [1]. La leva è `effort`
+  (`LLM_EFFORT`, `low` di default), che regola quanto il modello ragiona e quindi quanto
+  spende [2].
+- **Il ragionamento si paga.** Opus 5.5 ragiona prima di rispondere: quei token si pagano
+  come output e rientrano in `max_tokens` [3]. Il costo calcolato li comprende.
+- **Instructor con `tool_choice: auto`.** Instructor di norma obbliga il modello a usare lo
+  strumento, ma Opus 5.5 rifiuta l'obbligo con un 400 [4]. Il corso lascia l'output
+  strutturato sull'SDK di OpenAI; qui resta su Claude, e non serve una chiave OpenAI.
+
+### Le prove
+
+```bash
+uv run pytest                              # 60 test, nessuna chiamata a un modello vero
+uv run python -m scripts.prove_g4          # le cinque prove della consegna
+uv run python -m scripts.misura_stream_interrotto   # la misura dell'estensione
+```
+
+Gli script usano l'applicazione vera e gli SDK veri; è finto solo il server del fornitore,
+quindi non serve una chiave e non si spende niente. Se il database di test non è sulla
+porta 5432, `TEST_DATABASE_URL` dice dove sta. Esito del 16 novembre 2026:
+
+| prova | esito |
+|---|---|
+| la stessa domanda cambiando solo `DEFAULT_MODEL` | `claude-opus-5-5`: 1.800 token, 0,010748 €; `gpt-4o-mini`: 1.800 token, 0,000378 €. Servizio, endpoint e tipi invariati |
+| il conto di Anna Greco, di un altro portafoglio, chiesto in chiaro | lo strumento risponde «conto non disponibile per questo operatore»; nel log `strumento_negato` con operatore e conto; il saldo non compare |
+| il tetto di spesa a zero | 429 `RATE_LIMIT` con `Retry-After` in secondi fino a mezzanotte; zero chiamate al modello |
+| un movimento incomprensibile, a cui il modello risponde con una categoria inventata | 502 dopo 3 chiamate (1 più 2 tentativi di Instructor, tutte pagate); niente salvato |
+| lo stream interrotto a metà | la parte arrivata è salvata, segnata come interrotta, con il costo stimato |
+
+Con una chiave vera nel `.env` la verifica dal vivo è quella del Code Blueprint:
+
+```bash
+uv run uvicorn src.main:app --reload
+curl -X POST localhost:8000/api/ai/chat -H "Content-Type: application/json" \
+  -d '{"session_id":"new","message":"Quanto ha disponibile Paolo Ferri sul conto IT60X0542811101000000123?"}'
+# la risposta contiene il saldo vero, e tool_calls la chiamata a get_account_balance
+```
+
+### La decisione: dove si conta il costo
+
+- **Scelto**: il provider calcola il costo di ogni chiamata, perché è l'unico che vede il
+  consumo restituito dall'API; il servizio somma le chiamate di una domanda e salva il totale
+  accanto al messaggio, perché è l'unico che sa a quale conversazione appartiene; il
+  `CostTracker` legge quelle somme per il tetto.
+- **Scartato**: tutto nel provider, che non sa di chi è la conversazione e non potrebbe mai
+  dire quanto costa un operatore; tutto nel servizio, che dovrebbe conoscere il listino e i
+  campi di consumo dei due SDK, e il contratto perderebbe senso; un pezzo a parte che li
+  avvolge entrambi, che è la strada giusta quando servirà il costo di ogni singola chiamata,
+  ma oggi aggiungerebbe un livello senza nessuno che lo usi.
+- **Il numero**: una domanda che usa lo strumento fa due chiamate e salva 120 token, non i 60
+  dell'ultima (`test_il_giro_dello_strumento_legge_il_saldo_e_conta_due_chiamate`). Il
+  limite della scelta è misurato nella prova 4: la categorizzazione fa 3 chiamate pagate e
+  ne salva 0. Quando servirà il report per operatore, la decisione si sposta sul pezzo a
+  parte, con un registro per chiamata.
+
+### L'estensione: lo stream che sopravvive all'interruzione (la n. 4)
+
+Prima, se l'operatore chiudeva la pagina a metà risposta, nel database non restava niente.
+Quella parte di risposta però era già stata generata, e pagata: il tetto non la vedeva.
+
+- **Scelto**: il servizio salva in un blocco `finally`, che gira comunque finisca lo stream,
+  e lo protegge dall'annullamento del task (`anyio.CancelScope(shield=True)`), perché quando
+  il client chiude Starlette annulla il lavoro in corso [5][6]. La parte arrivata si salva
+  segnata come interrotta (colonna `interrupted`), con il costo stimato dai caratteri, circa
+  2,7 per token [7]: è una stima per difetto, perché non vede il ragionamento. Lo stream
+  verso il fornitore si chiude con `aclosing`, così la generazione si ferma [8].
+- **Scartato**: una `StreamingResponse` che chiude da sé il generatore. L'ho scritta e poi
+  tolta: togliendola, nessun test falliva, perché con questo stack la chiusura arriva già.
+  Scartato anche il controllo di `request.is_disconnected()` a ogni pezzo: una lettura in più
+  per pezzo, e non copre il fornitore che cade.
+- **Il numero**: con il client che chiude dopo 2 pezzi su 4, prima restavano 0 righe e 0 €;
+  ora resta 1 risposta, 33 token stimati, 0,000290 €. I 6 test in
+  [`tests/test_pw_g4.py`](tests/test_pw_g4.py) provano i tre modi in cui il server scopre la
+  disconnessione, e ogni pezzo della correzione fa fallire almeno un test se lo si toglie.
+
+### La revisione
+
+In [`docs/ai-review/G4.md`](docs/ai-review/G4.md): 13 rilievi sulle quattro voci della
+giornata, 6 non corretti con la loro ragione. Due sono stati corretti con una misura: un
+indice sulla data dei messaggi, che porta il controllo del tetto da circa 50 a circa 12 ms
+su 500.000 messaggi, e la storia della conversazione letta con un `LIMIT`, da 505 a 24 righe
+per domanda. Il più importante fra quelli non corretti: con 20 richieste contemporanee il
+tetto di 0,05 € lascia spendere 0,214 €.
+
+### Fonti
+
+1. Anthropic, *Migrating to API version 2026-10-21*. https://platform.claude.com/docs/en/api/migration-2026-10-21
+2. Anthropic, *Effort*. https://platform.claude.com/docs/en/build-with-claude/effort
+3. Anthropic, *Adaptive thinking*. https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
+4. Anthropic, *Define tools* (`tool_choice`). https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+5. AnyIO, *Cancellation and timeouts*. https://anyio.readthedocs.io/en/stable/cancellation.html
+6. ASGI, *HTTP & WebSocket ASGI Message Format*. https://asgi.readthedocs.io/en/latest/specs/www.html
+7. Anthropic, *Glossary* (voce «Tokens»). https://platform.claude.com/docs/en/about-claude/glossary
+8. Python, *contextlib — aclosing*. https://docs.python.org/3/library/contextlib.html
