@@ -26,7 +26,9 @@ K = 5
 
 async def indicizza() -> int:
     totale = 0
-    for percorso in sorted(Path("data/docs").glob("*.md")):
+    # leggere il disco è bloccante: dentro una coroutine si sposta su un thread
+    percorsi = await asyncio.to_thread(lambda: sorted(Path("data/docs").glob("*.md")))
+    for percorso in percorsi:
         testo = await asyncio.to_thread(percorso.read_text, encoding="utf-8")
         async with AsyncSessionLocal() as s:
             totale += await IngestService(s, get_embedder()).ingest(
@@ -37,7 +39,8 @@ async def indicizza() -> int:
 
 async def main() -> None:
     passaggi = await indicizza()
-    dati = json.loads(Path("data/eval/recupero_g5.json").read_text(encoding="utf-8"))
+    grezzo = await asyncio.to_thread(Path("data/eval/recupero_g5.json").read_text, "utf-8")
+    dati = json.loads(grezzo)
     embedder = get_embedder()
     al_primo = nei_primi_k = con_risposta = 0
     simili_giuste: list[float] = []
