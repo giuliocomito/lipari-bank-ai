@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     default_model: str = "claude-opus-5-5"
     # quanto ragiona Claude prima di rispondere, e quindi quanto spende: low, medium o high
     llm_effort: Literal["low", "medium", "high"] = "low"
-    embedding_model: str = "text-embedding-3-small"
+    # dal Giorno 5: gli embedding. Anthropic non ha un modello di embedding, quindi li calcola
+    # un modello locale, bge-m3, servito da Ollama con un'API compatibile con quella di OpenAI
+    embedding_model: str = "bge-m3"
+    embedding_base_url: str = "http://localhost:11434/v1"
     max_tokens_per_request: int = 2000
     daily_budget_eur: Decimal = Decimal("5.00")  # il tetto di spesa del modello, al giorno
 

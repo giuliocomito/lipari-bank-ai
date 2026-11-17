@@ -3,10 +3,28 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, false
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.db.session import Base
+
+# Le dimensioni del vettore le decide il modello di embedding, non noi: bge-m3 ne produce 1024
+# (il text-embedding-3-small del corso ne produce 1536). Cambiare modello vuol dire cambiare
+# questo numero, scrivere una migration e reindicizzare tutti i documenti.
+DIMENSIONI_EMBEDDING = 1024
 
 
 def gen_uuid() -> str:
@@ -76,3 +94,27 @@ class Movement(Base):
     booking_date: Mapped[date] = mapped_column(Date)  # la data contabile
     description: Mapped[str] = mapped_column(String(200))
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # negativo = uscita
+
+
+# ---- dal Giorno 5: i documenti della banca, in passaggi indicizzati per similarità
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        # dichiarato anche nel modello: altrimenti la prossima --autogenerate lo cancella
+        Index(
+            "ix_document_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_uuid)
+    document_id: Mapped[str] = mapped_column(String, index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(DIMENSIONI_EMBEDDING))
+    # non «metadata»: SQLAlchemy riserva quel nome alla classe base
+    chunk_metadata: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
