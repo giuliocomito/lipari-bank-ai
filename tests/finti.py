@@ -1,5 +1,8 @@
 # tests/finti.py — i modelli finti: a livello HTTP, dove gli SDK lavorano davvero, e a eco
+import hashlib
 import json
+import math
+import re
 from collections.abc import AsyncGenerator, Callable
 from decimal import Decimal
 from typing import Any
@@ -8,6 +11,8 @@ import httpx2
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
+from src.db.models import DIMENSIONI_EMBEDDING
+from src.llm.embedding_client import EmbeddingClient
 from src.llm.types import LLMResponse, Message, ToolSpec
 from src.services.categorize_rules import categorizza
 from src.types.categorize import CategorizeRequest, CategorizeResponse
@@ -234,3 +239,63 @@ class CategorizzazioneARegole:
 
     async def categorize(self, req: CategorizeRequest) -> CategorizeResponse:
         return categorizza(req)
+
+
+# ---------------------------------------------------------------- dal Giorno 5: gli embedding
+def vettore(testo: str) -> list[float]:
+    """Un embedding finto ma coerente: le parole in comune avvicinano i testi.
+
+    Ogni parola di almeno tre lettere accende una posizione del vettore, scelta con un hash;
+    il vettore si normalizza. Due testi con parole in comune hanno similarità del coseno
+    alta, due testi senza parole in comune hanno similarità zero: la soglia e l'ordine del
+    recupero si provano davvero, su Postgres con pgvector e l'indice HNSW.
+    """
+    v = [0.0] * DIMENSIONI_EMBEDDING
+    for parola in re.findall(r"\w{3,}", testo.lower()):
+        v[int(hashlib.md5(parola.encode()).hexdigest(), 16) % DIMENSIONI_EMBEDDING] += 1.0
+    norma = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / norma for x in v]
+
+
+def gestore_embedding(r: httpx2.Request) -> httpx2.Response:
+    """L'API degli embedding, finta: un vettore per ogni testo, nell'ordine in cui arrivano."""
+    testi: list[str] = json.loads(r.content)["input"]
+    return httpx2.Response(
+        200,
+        json={
+            "object": "list",
+            "model": "bge-m3",
+            "data": [
+                {"object": "embedding", "index": i, "embedding": vettore(t)}
+                for i, t in enumerate(testi)
+            ],
+            "usage": {"prompt_tokens": 10, "total_tokens": 10},
+        },
+    )
+
+
+def embedder_finto() -> EmbeddingClient:
+    return EmbeddingClient(openai_finto(gestore_embedding), "bge-m3")
+
+
+class ModelloFisso:
+    """Risponde con un testo scelto dal test, e ricorda cosa ha ricevuto."""
+
+    model = "finto"
+
+    def __init__(self, risposta: str) -> None:
+        self.risposta = risposta
+        self.ricevuti: list[list[Message]] = []
+
+    async def complete(
+        self, messages: list[Message], max_tokens: int = 500, tools: list[ToolSpec] | None = None
+    ) -> LLMResponse:
+        self.ricevuti.append(messages)
+        return LLMResponse(
+            content=self.risposta, tokens_used=100, cost_eur=Decimal("0.0001"), model="finto"
+        )
+
+    async def stream(
+        self, messages: list[Message], max_tokens: int = 500
+    ) -> AsyncGenerator[str | LLMResponse, None]:
+        yield await self.complete(messages, max_tokens)
