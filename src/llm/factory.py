@@ -11,6 +11,7 @@ from src.config import settings
 from src.exceptions import AppError
 from src.llm.anthropic_provider import AnthropicProvider
 from src.llm.client import LLMProvider
+from src.llm.embedding_client import EmbeddingClient
 from src.llm.openai_provider import OpenAIProvider
 
 
@@ -44,6 +45,23 @@ def get_llm_provider() -> LLMProvider:
     if modello.startswith("gpt"):
         return OpenAIProvider(_openai(), modello)
     raise ValueError(f"Modello sconosciuto: {modello}")
+
+
+@cache
+def _embedding() -> AsyncOpenAI:
+    """Il client degli embedding: l'SDK di OpenAI, puntato su Ollama (EMBEDDING_BASE_URL).
+
+    Ollama non chiede una chiave, ma l'SDK ne vuole una non vuota: qualsiasi stringa va bene.
+    """
+    return AsyncOpenAI(
+        base_url=settings.embedding_base_url, api_key="ollama", timeout=30.0, max_retries=2
+    )
+
+
+def get_embedder() -> EmbeddingClient:
+    # lo stesso modello per i documenti e per le domande: è la regola che non si viola, perché
+    # vettori di modelli diversi vivono in spazi diversi e non si possono confrontare
+    return EmbeddingClient(_embedding(), settings.embedding_model)
 
 
 @dataclass(frozen=True)
