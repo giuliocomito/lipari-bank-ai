@@ -1,0 +1,22 @@
+{
+  "nota": "Domande per misurare il recupero del Giorno 5. 'documento' è dove sta la risposta; null vuol dire che la risposta non è in nessun documento e il sistema deve rifiutare.",
+  "domande": [
+    {"domanda": "Quanto costa un bonifico SEPA fatto allo sportello?", "documento": "commissioni_bonifico"},
+    {"domanda": "Entro che ora va disposto un bonifico perché arrivi il giorno lavorativo dopo?", "documento": "commissioni_bonifico"},
+    {"domanda": "Qual è l'importo massimo per un bonifico istantaneo?", "documento": "commissioni_bonifico"},
+    {"domanda": "Che documenti servono per aprire un conto a un cittadino extra-UE?", "documento": "regolamento_conti"},
+    {"domanda": "Quando non si paga il canone del Conto Base?", "documento": "regolamento_conti"},
+    {"domanda": "Che tasso si applica allo sconfinamento senza fido?", "documento": "regolamento_conti"},
+    {"domanda": "Quanto costa prelevare contanti con la carta di credito?", "documento": "condizioni_carta_credito"},
+    {"domanda": "Fino a quanto risponde il cliente se gli rubano la carta prima del blocco?", "documento": "condizioni_carta_credito"},
+    {"domanda": "Cosa deve fare l'operatore per un bonifico verso un paese ad alto rischio?", "documento": "antiriciclaggio_operazioni"},
+    {"domanda": "Con quale modulo si segnala un'operazione sospetta?", "documento": "antiriciclaggio_operazioni"},
+    {"domanda": "Cosa indica il codice AML-07-R?", "documento": "antiriciclaggio_operazioni"},
+    {"domanda": "Per quanti anni si conservano i documenti dell'adeguata verifica?", "documento": "antiriciclaggio_operazioni"},
+    {"domanda": "Qual è il tasso del mutuo agevolato per giovani coppie?", "documento": null},
+    {"domanda": "Quali sono gli orari di apertura della filiale di Milano?", "documento": null},
+    {"domanda": "Come si apre un deposito titoli?", "documento": null},
+    {"domanda": "La banca offre polizze vita ai correntisti?", "documento": null},
+    {"domanda": "Quanto costa il cambio di valuta allo sportello?", "documento": null}
+  ]
+}
