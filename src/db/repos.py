@@ -1,4 +1,4 @@
-# src/db/repos.py — l'unico posto che sa che esiste un database
+# Repository delle chat, dei conti e dei movimenti.
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
@@ -22,7 +22,7 @@ class ChatRepository:
     async def find_session(
         self, session_id: str, user_id: str, con_messaggi: bool = True
     ) -> ChatSession | None:
-        """La conversazione, solo se è di chi chiede; con tutti i messaggi, se servono."""
+        """Restituisce la conversazione solo se è di user_id, con i messaggi se richiesti."""
         stmt = select(ChatSession).where(
             ChatSession.id == session_id, ChatSession.user_id == user_id
         )
@@ -32,7 +32,7 @@ class ChatRepository:
         return result.scalar_one_or_none()
 
     async def last_messages(self, session_id: str, limite: int) -> list[ChatMessage]:
-        """Gli ultimi messaggi di una conversazione, in ordine: il database ne legge solo N."""
+        """Restituisce in ordine gli ultimi messaggi, leggendone dal database solo `limite`."""
         stmt = (
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
@@ -40,7 +40,7 @@ class ChatRepository:
             .limit(limite)
         )
         recenti = list((await self.session.scalars(stmt)).all())
-        return recenti[::-1]  # dal più vecchio al più recente, come li legge il modello
+        return recenti[::-1]  # dal più vecchio al più recente, nell'ordine atteso dal modello
 
     async def add_message(
         self,
@@ -80,7 +80,7 @@ class ChatRepository:
         da = datetime.now(UTC) - timedelta(days=giorni)
         stmt = (
             select(ChatMessage, ChatSession.started_at)
-            .join(ChatSession, ChatSession.id == ChatMessage.session_id)  # ← la JOIN
+            .join(ChatSession, ChatSession.id == ChatMessage.session_id)
             .where(ChatSession.user_id == user_id, ChatMessage.created_at >= da)
             .order_by(ChatMessage.created_at.desc())
         )
@@ -95,13 +95,13 @@ class ChatRepository:
             )
             .join(ChatMessage, ChatMessage.session_id == ChatSession.id)
             .where(ChatSession.user_id == user_id)
-            .group_by(ChatSession.id)  # ← il GROUP BY
+            .group_by(ChatSession.id)
             .order_by(func.sum(ChatMessage.cost_eur).desc())
         )
         return list((await self.session.execute(stmt)).all())
 
     async def cost_between(self, inizio: datetime, fine: datetime) -> Decimal:
-        """Quanto sono costati i messaggi scritti in un intervallo: la somma, o zero."""
+        """Somma il costo dei messaggi creati in [inizio, fine); zero se non ce ne sono."""
         speso = await self.session.scalar(
             select(func.coalesce(func.sum(ChatMessage.cost_eur), 0)).where(
                 ChatMessage.created_at >= inizio, ChatMessage.created_at < fine
@@ -115,7 +115,7 @@ class AccountRepository:
         self.session = session
 
     async def of_user(self, username: str, account_id: str) -> Account | None:
-        """Il conto, solo se è di un cliente nel portafoglio di questo operatore."""
+        """Restituisce il conto solo se il suo cliente è nel portafoglio dell'operatore."""
         return await self.session.scalar(
             select(Account)
             .join(Customer, Customer.id == Account.customer_id)
@@ -123,7 +123,7 @@ class AccountRepository:
         )
 
     async def of_customer(self, username: str, customer_id: str) -> list[Account]:
-        """I conti di un cliente, solo se il cliente è nel portafoglio di questo operatore."""
+        """Restituisce i conti del cliente solo se è nel portafoglio dell'operatore."""
         stmt = (
             select(Account)
             .join(Customer, Customer.id == Account.customer_id)
@@ -133,7 +133,7 @@ class AccountRepository:
         return list((await self.session.scalars(stmt)).all())
 
     async def ids_in_portfolio(self, username: str) -> set[str]:
-        """Gli IBAN dei conti dei clienti nel portafoglio di questo operatore."""
+        """Restituisce gli IBAN dei conti dei clienti nel portafoglio dell'operatore."""
         stmt = (
             select(Account.id)
             .join(Customer, Customer.id == Account.customer_id)
@@ -142,11 +142,11 @@ class AccountRepository:
         return set((await self.session.scalars(stmt)).all())
 
     async def apply(self, account_id: str, amount: Decimal) -> Decimal | None:
-        """Somma l'importo al saldo dentro il database, in un'istruzione sola, e dà il saldo nuovo.
+        """Somma l'importo al saldo con un solo UPDATE e restituisce il saldo aggiornato.
 
-        Nessuna lettura prima: con «leggi il saldo, somma in Python, riscrivi» due richieste
-        contemporanee leggerebbero lo stesso saldo, e una delle due somme andrebbe persa.
-        Niente commit: la transazione la chiude chi conosce l'operazione intera, il service.
+        Il saldo non si legge prima: leggendolo, sommando in Python e riscrivendolo, due
+        richieste contemporanee partirebbero dallo stesso valore e una somma andrebbe persa.
+        Il commit spetta al service, che conosce l'operazione intera.
         """
         stmt = (
             update(Account)
@@ -164,16 +164,16 @@ class MovementRepository:
     async def add(
         self, account_id: str, booking_date: date, description: str, amount: Decimal
     ) -> Movement:
-        """Il movimento, scritto nella transazione aperta: visibile agli altri solo al commit."""
+        """Scrive il movimento nella transazione aperta; gli altri lo vedono solo dopo il commit."""
         mov = Movement(
             account_id=account_id, booking_date=booking_date, description=description, amount=amount
         )
         self.session.add(mov)
-        await self.session.flush()  # l'id, e i vincoli che scattano qui e non al commit
+        await self.session.flush()  # assegna l'id e fa scattare subito i vincoli
         return mov
 
     async def recent(self, username: str, account_id: str, limite: int) -> list[Movement]:
-        """Gli ultimi movimenti di un conto del portafoglio, dal più recente."""
+        """Restituisce gli ultimi movimenti di un conto del portafoglio, dal più recente."""
         stmt = (
             select(Movement)
             .join(Account, Account.id == Movement.account_id)
@@ -187,11 +187,11 @@ class MovementRepository:
     async def with_owner(
         self, username: str, account_id: str, dal: date, al: date
     ) -> list[tuple[Movement, str]]:
-        """I movimenti di un conto in un periodo, ognuno con il nome dell'intestatario."""
+        """Restituisce i movimenti del conto nel periodo, ognuno con il nome dell'intestatario."""
         stmt = (
             select(Movement, Customer.full_name)
-            .join(Account, Account.id == Movement.account_id)  # il movimento, al suo conto
-            .join(Customer, Customer.id == Account.customer_id)  # il conto, al suo cliente
+            .join(Account, Account.id == Movement.account_id)
+            .join(Customer, Customer.id == Account.customer_id)
             .where(
                 Account.id == account_id,
                 Customer.operator == username,
@@ -204,7 +204,7 @@ class MovementRepository:
     async def spent_by_month(
         self, username: str, account_id: str, dal: date, al: date
     ) -> list[tuple[str, Decimal]]:
-        """Quanto è uscito dal conto, mese per mese: la somma delle uscite, cambiata di segno."""
+        """Somma le uscite del conto mese per mese, con il segno invertito."""
         mese = func.to_char(Movement.booking_date, "YYYY-MM")
         stmt = (
             select(mese, func.sum(-Movement.amount))
@@ -214,7 +214,7 @@ class MovementRepository:
                 Account.id == account_id,
                 Customer.operator == username,
                 Movement.booking_date.between(dal, al),
-                Movement.amount < 0,  # solo le uscite: gli accrediti non sono spesa
+                Movement.amount < 0,  # gli accrediti non contano come spesa
             )
             .group_by(mese)
             .order_by(mese)

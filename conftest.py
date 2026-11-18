@@ -1,4 +1,4 @@
-# conftest.py — nella radice: l'ambiente dei test, prima che qualcosa importi src
+# Prepara l'ambiente dei test prima che qualcosa importi src.
 import os
 from collections.abc import Iterator
 
@@ -7,9 +7,9 @@ from alembic.config import Config
 
 from alembic import command
 
-# Dal Giorno 3 i test parlano con un database vero: quello di test, mai quello di sviluppo.
-# Qui non c'è setdefault: un DATABASE_URL rimasto nell'ambiente porterebbe i test a svuotare
-# il database su cui lavori.
+# Dal Giorno 3 i test usano un database vero, quello di test. DATABASE_URL è sovrascritto
+# senza setdefault perché un valore rimasto nell'ambiente porterebbe i test a svuotare il
+# database di sviluppo.
 os.environ["DATABASE_URL"] = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+asyncpg://lipari:lipari@localhost:5432/lipari_ai_test"
 )
@@ -18,7 +18,7 @@ os.environ.setdefault("JWT_SECRET", "segreto-dei-test-lungo-almeno-trentadue-car
 
 @pytest.fixture(scope="session", autouse=True)
 def schema() -> Iterator[None]:
-    """Lo schema del database di test, dalle migration e da zero: come lo avrà chi clona."""
+    """Ricrea da zero lo schema di test con le migration, come lo otterrà chi clona il progetto."""
     cfg = Config("alembic.ini")
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
@@ -27,10 +27,12 @@ def schema() -> Iterator[None]:
 
 @pytest.fixture(scope="session", autouse=True)
 def modelli_finti() -> Iterator[None]:
-    """Nessun test chiama un modello vero: costerebbe, e risponderebbe ogni volta in un modo
-    diverso. La chat parla con un finto che ripete la domanda, la categorizzazione usa la regola
-    a parole chiave, gli embedding sono finti ma coerenti. Un test che vuole un modello preciso
-    mette il suo, e toglie solo quello."""
+    """Sostituisce i modelli con dei finti per tutta la sessione.
+
+    Un modello vero costerebbe e risponderebbe ogni volta in modo diverso. La chat usa un finto
+    che ripete la domanda, la categorizzazione la regola a parole chiave, gli embedding sono finti
+    ma coerenti. Un test che ha bisogno di un modello preciso installa il suo e poi toglie solo
+    quello."""
     from src.api.categorize import get_categorize_service
     from src.llm.factory import get_embedder, get_llm_provider
     from src.main import app

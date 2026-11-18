@@ -1,4 +1,3 @@
-# src/services/ingest_service.py — dal documento ai passaggi nell'indice
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,17 +7,17 @@ from src.llm.embedding_client import EmbeddingClient
 
 
 def senza_ripetizioni(testo: str) -> str:
-    """Un paragrafo ripetuto, come una pagina incollata due volte, resta una volta sola.
+    """Toglie i paragrafi ripetuti, come quelli di una pagina incollata due volte.
 
-    Prima del taglio, non dopo: con la sovrapposizione i pezzi di due pagine uguali cominciano in
-    punti diversi, e non sono mai identici.
+    Va fatto prima del taglio: con la sovrapposizione, i pezzi di due pagine uguali iniziano in
+    punti diversi e non risultano mai identici.
     """
     paragrafi = [p.strip() for p in testo.split("\n\n") if p.strip()]
     return "\n\n".join(dict.fromkeys(paragrafi))
 
 
 class IngestService:
-    """Porta un documento dentro l'indice: taglia, vettorizza, salva."""
+    """Inserisce un documento nell'indice: lo divide in passaggi, li vettorizza e li salva."""
 
     LOTTO = 64  # quanti passaggi per chiamata al modello di embedding
 
@@ -29,10 +28,10 @@ class IngestService:
     async def ingest(
         self, document_id: str, text: str, metadata: dict[str, str] | None = None
     ) -> int:
-        """Taglia, vettorizza e salva. Ritorna quanti passaggi sono stati scritti.
+        """Indicizza il testo e restituisce il numero di passaggi scritti.
 
-        Ri-ingerire lo stesso `document_id` sostituisce: i passaggi precedenti vengono
-        cancellati prima, nella stessa transazione.
+        Se il `document_id` esiste già, i suoi passaggi vengono cancellati nella stessa
+        transazione e sostituiti.
         """
         await self.session.execute(
             delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
@@ -59,5 +58,5 @@ class IngestService:
                 ]
             )
 
-        await self.session.commit()  # o il documento è nell'indice tutto, o non c'è
+        await self.session.commit()  # il documento entra nell'indice per intero o per niente
         return len(pezzi)

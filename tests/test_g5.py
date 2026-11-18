@@ -1,4 +1,4 @@
-# tests/test_g5.py — i documenti: il recupero su un Postgres con pgvector, e le proprietà del RAG
+# Giorno 5: recupero dei documenti su Postgres con pgvector e proprietà del RAG.
 from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
 from pathlib import Path
@@ -26,7 +26,7 @@ COMMISSIONI = Path("data/docs/commissioni_bonifico.md").read_text(encoding="utf-
 
 @pytest.fixture(autouse=True)
 async def indice_vuoto() -> AsyncIterator[None]:
-    await engine.dispose()  # le connessioni dei TestClient degli altri test: via dal pool
+    await engine.dispose()  # toglie dal pool le connessioni dei TestClient di altri test
     async with engine.begin() as c:
         await c.execute(text("TRUNCATE document_chunks"))
     yield
@@ -61,16 +61,16 @@ async def chiedi(modello: ModelloFisso, domanda: str) -> AdviceResponse:
         return await servizio.advise(AdviceRequest(question=domanda))
 
 
-# ---------------------------------------------------------------- il taglio
+# Suddivisione in chunk
 def test_chunk_text_taglia_con_sovrapposizione_e_senza_perdere_niente():
     testo = COMMISSIONI * 3
     pezzi = chunk_text(testo, chunk_size=500, overlap=50)
     assert len(pezzi) > 3 and all(len(p) <= 500 for p in pezzi)
-    assert all(p in testo for p in pezzi)  # i pezzi vengono dal testo
+    assert all(p in testo for p in pezzi)
     assert chunk_text("   ") == [] and chunk_text("breve") == ["breve"]
 
 
-# ---------------------------------------------------------------- l'ingestione
+# Ingestione
 async def test_ingerire_due_volte_sostituisce_e_non_raddoppia():
     primo = await ingerisci("commissioni_bonifico", COMMISSIONI)
     secondo = await ingerisci("commissioni_bonifico", COMMISSIONI)
@@ -81,7 +81,7 @@ async def test_la_pagina_ripetuta_non_produce_passaggi_identici():
     pagina = COMMISSIONI.split("## Bonifico estero")[0].strip()
     quanti = await ingerisci("pdf_unito_a_mano", pagina + "\n\n" + pagina)
     una_volta = await ingerisci("la_stessa_pagina_una_volta", pagina)
-    assert quanti == una_volta  # la seconda copia non aggiunge niente
+    assert quanti == una_volta  # la copia ripetuta non aggiunge chunk
     async with AsyncSessionLocal() as s:
         testi = list(
             (
@@ -102,7 +102,7 @@ async def test_il_vettore_torna_dal_database():
     assert len(uno.embedding) == DIMENSIONI_EMBEDDING and uno.chunk_metadata == {"fonte": "test"}
 
 
-# ---------------------------------------------------------------- recupero e risposta
+# Recupero e risposta
 async def test_la_domanda_fuori_dai_documenti_non_chiama_il_modello():
     await ingerisci("commissioni_bonifico", COMMISSIONI)
     modello = ModelloFisso("non dovrebbe servire")
@@ -113,8 +113,9 @@ async def test_la_domanda_fuori_dai_documenti_non_chiama_il_modello():
 async def test_si_cita_solo_quello_che_la_risposta_usa():
     await ingerisci("commissioni_bonifico", COMMISSIONI)
     modello = ModelloFisso("Il bonifico istantaneo SEPA costa €1.00 [fonte-1].")
-    # «costo», non «costa»: il vettore finto conta le parole uguali, e con «costa» la domanda
-    # resta a 0,343, appena sotto la soglia (un embedding vero sa che sono la stessa cosa)
+    # La domanda usa «costo» perché il vettore finto conta solo le parole identiche: con «costa»
+    # la similarità resterebbe a 0,343, appena sotto la soglia. Un embedding vero coglierebbe
+    # che le due forme hanno lo stesso significato.
     esito = await chiedi(modello, "Qual è il costo del bonifico istantaneo SEPA?")
     utente = modello.ricevuti[0][1].content
     assert utente.startswith("CONTESTO\n[fonte-1] (documento: commissioni_bonifico)")
@@ -143,7 +144,7 @@ async def test_la_soglia_filtra_i_passaggi_lontani():
     assert vicini == sorted(vicini, key=lambda p: p.similarity, reverse=True)
 
 
-# ---------------------------------------------------------------- gli endpoint
+# Endpoint
 async def test_gli_endpoint_ingeriscono_e_rispondono(monkeypatch: pytest.MonkeyPatch):
     modello = ModelloFisso("Online il bonifico SEPA costa €1.00 [fonte-1].")
     app.dependency_overrides[get_llm_provider] = lambda: modello  # l'embedder è quello finto
@@ -163,7 +164,7 @@ async def test_gli_endpoint_ingeriscono_e_rispondono(monkeypatch: pytest.MonkeyP
     assert r.json()["embedding_dim"] == DIMENSIONI_EMBEDDING
     assert a.status_code == 200 and len(a.json()["citations"]) == 1
     assert a.json()["cost_eur"] == 0.0001
-    # un guasto degli embedding è un guasto del fornitore, come nella chat: il 502
+    # un guasto degli embedding è un guasto del fornitore e dà 502, come nella chat
     giu = EmbeddingClient(
         openai_finto(lambda r: httpx2.Response(503, json={"error": {"message": "giù"}}), 0),
         "bge-m3",
@@ -179,7 +180,7 @@ async def test_gli_endpoint_ingeriscono_e_rispondono(monkeypatch: pytest.MonkeyP
 
 
 async def test_un_modello_con_dimensioni_sbagliate_si_ferma_prima_del_database():
-    """Se il modello di embedding cambia senza cambiare la colonna, l'errore è chiaro."""
+    """Se il modello di embedding cambia e la colonna no, l'errore arriva prima del database."""
     corto = EmbeddingClient(
         openai_finto(
             lambda r: httpx2.Response(

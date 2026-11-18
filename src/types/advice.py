@@ -1,4 +1,4 @@
-# src/types/advice.py — il contratto dell'advisor e dell'ingestione
+# Contratti dell'advisor e dell'ingestione dei documenti.
 from pydantic import BaseModel, Field
 
 

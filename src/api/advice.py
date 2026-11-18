@@ -1,4 +1,4 @@
-# src/api/advice.py — l'advisor sui documenti, e l'ingestione che lo alimenta
+# Advisor sui documenti e ingestione dei documenti che lo alimentano.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -45,7 +45,7 @@ async def advice(
     service: Annotated[RAGService, Depends(get_rag_service)],
     session: Annotated[AsyncSession, Depends(get_db)],  # la stessa sessione del servizio
 ) -> AdviceResponse:
-    # il tetto della chat vale anche qui: ogni chiamata al modello spende, non solo la chat
+    # Il tetto di spesa della chat vale anche qui: ogni chiamata al modello ha un costo.
     await CostTracker(ChatRepository(session), settings.daily_budget_eur).verifica()
     return await service.advise(req)
 
@@ -54,6 +54,6 @@ async def advice(
 async def ingest(
     req: IngestRequest, service: Annotated[IngestService, Depends(get_ingest_service)]
 ) -> IngestResponse:
-    """Scrive l'indice. Lento per costruzione, e aperto a chiunque: manca l'autenticazione."""
+    """Indicizza il documento. È lento e, finché manca l'autenticazione, aperto a chiunque."""
     quanti = await service.ingest(req.document_id, req.content, req.metadata)
     return IngestResponse(chunk_count=quanti, embedding_dim=DIMENSIONI_EMBEDDING)

@@ -1,4 +1,4 @@
-# tests/test_env_example.py — il .env.example non mente: una riga per ogni campo, nessuna orfana
+# Verifica che .env.example abbia una riga per ogni campo della configurazione, e nessuna in più.
 from pathlib import Path
 
 from pydantic import Field
@@ -10,9 +10,9 @@ RADICE = Path(__file__).resolve().parents[1]
 
 
 def variabili_lette(configurazione: type[BaseSettings]) -> set[str]:
-    """I nomi delle variabili d'ambiente che la configurazione legge davvero.
+    """Restituisce i nomi delle variabili d'ambiente lette dalla configurazione.
 
-    Non è il nome del campo in maiuscolo: un alias lo sostituisce, e un prefisso lo allunga.
+    Tiene conto dell'alias, che sostituisce il nome del campo, e di env_prefix, che lo precede.
     """
     prefisso = configurazione.model_config.get("env_prefix") or ""
     nomi = set()

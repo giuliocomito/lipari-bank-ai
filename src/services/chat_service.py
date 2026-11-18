@@ -1,4 +1,4 @@
-# src/services/chat_service.py — la conversazione, con un modello che risponde e uno strumento
+# Conversazione con il modello, che può usare lo strumento del saldo.
 import json
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
@@ -19,12 +19,12 @@ from src.observability.cost_tracker import CostTracker
 from src.types.chat import ChatRequest, ChatResponse, ToolCallInfo
 
 FINESTRA = 20  # quanti messaggi di storia entrano nel prompt
-GIRI_MASSIMI = 3  # le chiamate al modello concesse a una domanda: di solito ne bastano due
+GIRI_MASSIMI = 3  # chiamate al modello per domanda; di solito ne bastano due
 ARRESO = "Non sono riuscito a completare la richiesta con gli strumenti che ho: riprova più tardi."
 
 
 def _argomenti(testo: str) -> dict[str, str]:
-    """Gli argomenti di una chiamata, per la risposta: il JSON del modello, se è un oggetto."""
+    """Converte gli argomenti JSON del modello in dizionario; {} se non sono un oggetto."""
     try:
         valori = json.loads(testo)
     except json.JSONDecodeError:
@@ -47,22 +47,21 @@ class ChatService:
         self.costi = CostTracker(self.repo, tetto_eur)
         self.llm = llm
         self.system_prompt = system_prompt
-        # il tetto di una singola chiamata: con Claude comprende anche i token di ragionamento
+        # limite per singola chiamata; con Claude include anche i token di ragionamento
         self.max_tokens = max_tokens
 
     async def _conversazione(
         self, req: ChatRequest, user_id: str
     ) -> tuple[ChatSession, list[Message]]:
-        """La conversazione di chi chiede, e i messaggi da mandare al modello."""
+        """Recupera o crea la conversazione e prepara i messaggi da mandare al modello."""
         storia: list[Message] = []
         if req.session_id != "new":
             chat = await self.repo.find_session(req.session_id, user_id, con_messaggi=False)
             if chat is None:
                 raise ChatSessionNotFoundError(req.session_id)
-            # la storia si legge PRIMA di aggiungere il messaggio di adesso: altrimenti
-            # la domanda dell'utente arriva al modello due volte. E se ne leggono solo gli
-            # ultimi FINESTRA messaggi, con un LIMIT nel database: una conversazione da 5.000
-            # messaggi non deve costare 5.000 righe lette a ogni domanda
+            # la storia va letta prima di salvare il messaggio corrente, altrimenti la domanda
+            # arriva al modello due volte. Il LIMIT nel database legge solo gli ultimi FINESTRA
+            # messaggi, così una conversazione da 5.000 messaggi non costa 5.000 righe a domanda
             recenti = await self.repo.last_messages(chat.id, FINESTRA)
             storia = [Message(role=m.role, content=m.content) for m in recenti]
         else:
@@ -86,20 +85,20 @@ class ChatService:
             model_used=risposta.model,
             interrupted=interrotta,
         )
-        await self.session.commit()  # una volta, a lavoro finito: le due scritture valgono insieme
+        await self.session.commit()  # un solo commit, così domanda e risposta si salvano insieme
 
     async def _saldo(self, user_id: str, account_id: str) -> Decimal:
         conto = await self.accounts.of_user(user_id, account_id)
-        if conto is None:  # lo strumento ha già controllato: qui è una seconda difesa
+        if conto is None:  # lo strumento ha già controllato; questa è una seconda difesa
             raise AccountNotFoundError(account_id)
         return conto.balance
 
     async def chat(self, req: ChatRequest, user_id: str) -> ChatResponse:
-        """Una risposta del modello, con gli strumenti che chiede, il costo di tutti i giri."""
-        await self.costi.verifica()  # prima di spendere: dopo, la spesa è già fatta
+        """Risponde eseguendo gli strumenti richiesti, con il costo sommato su tutti i giri."""
+        await self.costi.verifica()  # il tetto si controlla prima di chiamare il modello
         chat, messaggi = await self._conversazione(req, user_id)
 
-        # gli strumenti di QUESTA richiesta, con i conti del portafoglio letti una volta sola
+        # i conti del portafoglio si leggono una volta per richiesta
         conti = await self.accounts.ids_in_portfolio(user_id)
 
         async def leggi_saldo(account_id: str) -> Decimal:
@@ -112,11 +111,11 @@ class ChatService:
         eseguite: list[ToolCallInfo] = []
         giri = 1
         while risposta.tool_calls and giri < GIRI_MASSIMI:
-            # l'assistente che chiede rientra nella conversazione PRIMA dei risultati
+            # il messaggio dell'assistente con le chiamate deve precedere i loro risultati
             messaggi.append(
                 Message(role="assistant", content=risposta.content, tool_calls=risposta.tool_calls)
             )
-            for richiesta in risposta.tool_calls:  # una risposta a ogni richiesta del giro
+            for richiesta in risposta.tool_calls:  # un risultato per ogni chiamata
                 esegui = strumenti.get(richiesta.name)
                 esito = (
                     await esegui(richiesta.arguments)
@@ -133,7 +132,7 @@ class ChatService:
             token, costo = token + risposta.tokens_used, costo + risposta.cost_eur
             giri += 1
 
-        # la risposta salvata porta il costo di TUTTI i giri, non solo dell'ultimo
+        # la risposta salvata riporta token e costo di tutti i giri
         finale = risposta.model_copy(
             update={
                 "content": ARRESO if risposta.tool_calls else risposta.content,
@@ -153,11 +152,11 @@ class ChatService:
         )
 
     async def chat_stream(self, req: ChatRequest, user_id: str) -> AsyncGenerator[str, None]:
-        """Prepara la conversazione subito, e restituisce i pezzi da mandare al client.
+        """Prepara subito la conversazione e restituisce il generatore dei pezzi per il client.
 
-        La preparazione avviene prima che la risposta parta: una sessione che non esiste, o il
-        tetto superato, sono ancora un 404 e un 429, non un errore a metà di uno stream già
-        cominciato con un 200. Lo streaming non usa strumenti: il giro sta nella risposta intera.
+        La preparazione precede l'invio della risposta, così una sessione inesistente o il tetto
+        superato producono ancora un 404 o un 429, anziché un errore dentro uno stream già
+        partito con 200. Lo streaming non usa strumenti, che restano alla risposta intera.
         """
         await self.costi.verifica()
         chat, messaggi = await self._conversazione(req, user_id)
@@ -166,29 +165,29 @@ class ChatService:
     async def _pezzi(
         self, chat: ChatSession, domanda: str, messaggi: list[Message]
     ) -> AsyncGenerator[str, None]:
-        """I pezzi della risposta; e, comunque vada a finire, la risposta salvata con il costo.
+        """Produce i pezzi della risposta e, in ogni caso, salva la risposta con il suo costo.
 
-        Lo stream può finire in tre modi: arriva in fondo; il client chiude la pagina, e chi
-        ci legge chiude questo generatore (GeneratorExit) o Starlette annulla il task
-        (CancelledError); il fornitore cade a metà (LLMProviderError). Nel primo caso si salva
-        la risposta con il consumo vero. Negli altri due la parte già generata è già pagata:
-        si salva lo stesso, segnata come interrotta, con il costo stimato dai caratteri.
+        Lo stream può arrivare in fondo, essere interrotto dal client che chiude la pagina (chi
+        legge chiude questo generatore con GeneratorExit, oppure Starlette annulla il task con
+        CancelledError) o cadere per un errore del fornitore (LLMProviderError). Nel primo caso
+        si salva il consumo reale. Negli altri la parte generata è comunque pagata, quindi si
+        salva segnata come interrotta, con il costo stimato dai caratteri.
         """
         finale: LLMResponse | None = None
         arrivato: list[str] = []
         try:
-            # aclosing: se questo generatore viene chiuso, si chiude anche quello del fornitore,
-            # e con lui la connessione HTTP: la generazione si ferma invece di continuare a vuoto
+            # aclosing propaga la chiusura al generatore del fornitore e alla connessione HTTP,
+            # così la generazione si ferma invece di proseguire senza nessuno che la legga
             async with aclosing(self.llm.stream(messaggi, self.max_tokens)) as flusso:
                 async for pezzo in flusso:
                     if isinstance(pezzo, LLMResponse):
-                        finale = pezzo  # l'ultimo: il testo intero, i token e il costo
+                        finale = pezzo  # arriva per ultimo, con testo completo, token e costo
                     else:
                         arrivato.append(pezzo)
                         yield pezzo
         finally:
-            # schermato: se il task è stato annullato, ogni await qui dentro verrebbe annullato
-            # a sua volta, e il salvataggio non avverrebbe mai
+            # scope schermato: se il task è stato annullato, anche gli await qui dentro lo
+            # sarebbero e il salvataggio non avverrebbe
             with anyio.CancelScope(shield=True):
                 if finale is not None:
                     await self._salva(chat, domanda, finale)

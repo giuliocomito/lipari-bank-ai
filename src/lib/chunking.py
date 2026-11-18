@@ -1,11 +1,10 @@
-# src/lib/chunking.py — il testo in passaggi di ~chunk_size caratteri, con sovrapposizione
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
-    """Taglia il testo in passaggi di circa chunk_size caratteri.
+    """Divide il testo in passaggi di circa chunk_size caratteri.
 
-    Il taglio cade sulla fine di una frase o di un paragrafo quando ce n'è una nella seconda
-    metà della finestra, così un passaggio non si interrompe a metà di un concetto. Due
-    passaggi vicini hanno overlap caratteri in comune: una frase che sta a cavallo del taglio
-    resta intera in almeno uno dei due.
+    Se nella seconda metà della finestra finisce una frase o un paragrafo, il taglio cade
+    lì, così un passaggio non si interrompe a metà di un concetto. Due passaggi vicini
+    condividono overlap caratteri: una frase più corta della sovrapposizione, se il taglio
+    la spezza, si ritrova intera nel passaggio successivo.
     """
     if not text.strip():
         return []

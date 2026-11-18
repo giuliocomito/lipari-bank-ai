@@ -1,11 +1,11 @@
-# scripts/misura_recupero.py — quanto spesso il recupero porta il documento giusto
-"""La linea di partenza del Project Work G5: il recupero misurato con gli embedding veri.
+"""Misura quanto spesso il recupero trova il documento giusto, con gli embedding veri.
 
-Indicizza i documenti di data/docs con il modello di embedding della configurazione (bge-m3
-su Ollama), poi per ogni domanda di data/eval/recupero_g5.json guarda i primi cinque passaggi
-senza soglia: in che posizione compare il documento che contiene la risposta, e con quale
-similarità. Per le domande senza risposta nei documenti guarda la similarità del passaggio
-più vicino: è quella che la soglia deve tagliare.
+È la linea di partenza del Project Work G5. Indicizza i documenti di data/docs con il modello
+di embedding della configurazione (bge-m3 su Ollama); poi, per ogni domanda di
+data/eval/recupero_g5.json, esamina i primi cinque passaggi senza soglia e riporta in che
+posizione compare il documento che contiene la risposta, e con quale similarità. Per le domande
+che non hanno risposta nei documenti riporta la similarità del passaggio più vicino, cioè il
+valore che la soglia deve escludere.
 
     uv run python -m scripts.misura_recupero
 
@@ -26,7 +26,7 @@ K = 5
 
 async def indicizza() -> int:
     totale = 0
-    # leggere il disco è bloccante: dentro una coroutine si sposta su un thread
+    # la lettura dal disco è bloccante, quindi la coroutine la delega a un thread
     percorsi = await asyncio.to_thread(lambda: sorted(Path("data/docs").glob("*.md")))
     for percorso in percorsi:
         testo = await asyncio.to_thread(percorso.read_text, encoding="utf-8")

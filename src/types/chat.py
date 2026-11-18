@@ -1,4 +1,4 @@
-# src/types/chat.py — il contratto della chat
+# Contratto della chat.
 from datetime import datetime
 
 from pydantic import BaseModel, Field

@@ -1,4 +1,4 @@
-# src/api/movements.py — l'estratto dei movimenti, caricato in blocco
+# Importazione in blocco di un estratto dei movimenti in CSV.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, UploadFile
@@ -51,6 +51,6 @@ async def import_movements(
         ),
     ] = None,
 ) -> ImportResult:
-    # un byte oltre il limite basta a sapere che lo supera: il resto non si legge
+    # Si legge al massimo un byte oltre il limite, quanto basta per sapere se lo supera.
     contenuto = await file.read(movement_import.MASSIMO_BYTES + 1)
     return registro.importa(contenuto, idempotency_key)

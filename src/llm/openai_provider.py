@@ -1,4 +1,3 @@
-# src/llm/openai_provider.py — il contratto, tradotto nella lingua di OpenAI
 from collections.abc import AsyncGenerator
 from decimal import Decimal
 
@@ -14,8 +13,8 @@ from openai.types.chat import (
 from src.exceptions import LLMProviderError
 from src.llm.types import LLMResponse, Message, ToolCall, ToolSpec
 
-# EUR per 1000 token, (input, output). È la fotografia del listino che dà il corso: nel nostro
-# progetto il fornitore predefinito è Anthropic, e questo provider resta come seconda strada.
+# EUR per 1000 token, nell'ordine (input, output), dal listino fornito dal corso. Il fornitore
+# predefinito del progetto è Anthropic; questo provider resta come alternativa.
 PRICING: dict[str, tuple[Decimal, Decimal]] = {
     "gpt-4o-mini": (Decimal("0.00014"), Decimal("0.00056")),
     "gpt-4o": (Decimal("0.0023"), Decimal("0.0091")),
@@ -29,11 +28,11 @@ def _messaggi(messages: list[Message]) -> list[ChatCompletionMessageParam]:
             tradotti.append({"role": "system", "content": m.content})
         elif m.role == "user":
             tradotti.append({"role": "user", "content": m.content})
-        elif m.role == "tool":  # il risultato di uno strumento, agganciato alla sua richiesta
+        elif m.role == "tool":  # risultato di uno strumento, legato alla sua chiamata
             tradotti.append(
                 {"role": "tool", "tool_call_id": m.tool_call_id or "", "content": m.content}
             )
-        elif m.tool_calls:  # l'assistente che ha chiesto strumenti: rientra così com'era
+        elif m.tool_calls:  # turno dell'assistente con chiamate a strumenti, rimandato intatto
             chiamate: list[ChatCompletionMessageFunctionToolCallParam] = [
                 {
                     "id": c.id,
@@ -60,9 +59,9 @@ def _strumenti(tools: list[ToolSpec]) -> list[ChatCompletionToolParam]:
 
 class OpenAIProvider:
     def __init__(self, client: AsyncOpenAI, model: str) -> None:
-        if model not in PRICING:  # un modello senza prezzo è un costo che nessuno conta
+        if model not in PRICING:  # senza prezzo il costo non verrebbe conteggiato
             raise ValueError(f"Nessun prezzo per {model}: aggiungilo a PRICING")
-        self._client = client  # creato una volta, dalla factory, e iniettato
+        self._client = client  # creato una volta dalla factory
         self._model = model
 
     @property
@@ -93,7 +92,7 @@ class OpenAIProvider:
                 temperature=0.3,
                 tools=_strumenti(tools) if tools else omit,
             )
-        except openai.APIError as exc:  # dopo i tentativi dell'SDK: il guasto è del fornitore
+        except openai.APIError as exc:  # esauriti i tentativi dell'SDK, è un guasto del fornitore
             raise LLMProviderError("openai", str(exc)) from exc
         messaggio = r.choices[0].message
         chiamate = [
@@ -115,10 +114,10 @@ class OpenAIProvider:
                 max_tokens=max_tokens,
                 temperature=0.3,
                 stream=True,
-                stream_options={"include_usage": True},  # senza, il consumo non arriva
+                stream_options={"include_usage": True},  # serve per avere il consumo
             )
             async for pezzo in pezzi:
-                if pezzo.usage is not None:  # l'ultimo pezzo: il consumo, e nessuna scelta
+                if pezzo.usage is not None:  # l'ultimo pezzo ha il consumo e choices vuote
                     usage = pezzo.usage
                 if pezzo.choices and pezzo.choices[0].delta.content:
                     testo.append(pezzo.choices[0].delta.content)

@@ -1,4 +1,4 @@
-# src/services/account_service.py — i conti del portafoglio: i movimenti e la spesa di un periodo
+# Movimenti e spesa per periodo dei conti in portafoglio.
 import datetime as dt
 from decimal import Decimal
 
@@ -24,7 +24,7 @@ class AccountService:
     async def post_movement(
         self, username: str, account_id: str, nuovo: MovementIn
     ) -> MovementPosted:
-        """Il movimento e il saldo che cambia: due tabelle, una transazione, un commit."""
+        """Registra il movimento e aggiorna il saldo nella stessa transazione."""
         if await self.accounts.of_user(username, account_id) is None:
             raise AccountNotFoundError(account_id)
         mov = await self.movements.add(
@@ -33,9 +33,9 @@ class AccountService:
         saldo = await self.accounts.apply(account_id, nuovo.amount)
         if saldo is None:  # il conto è sparito fra la verifica e l'aggiornamento
             raise AccountNotFoundError(account_id)
-        # Una volta sola, qui: se il saldo fallisce, il movimento non resta scritto da solo.
-        # Se fallisce il commit, l'eccezione esce prima che esista una risposta: il client
-        # riceve un errore, non un 201 per un movimento che non c'è.
+        # Un solo commit per le due scritture: se l'aggiornamento del saldo fallisce, il movimento
+        # non resta registrato. Se fallisce il commit, l'eccezione parte prima della risposta e il
+        # client riceve un errore invece di un 201 per un movimento inesistente.
         await self.session.commit()
         return MovementPosted(
             id=mov.id,
@@ -75,5 +75,5 @@ class AccountService:
             date_from=dal,
             date_to=al,
             months=[MonthlySpending(month=m, spent=s) for m, s in mesi],
-            total=sum((s for _, s in mesi), Decimal("0")),  # Decimal su Decimal: al centesimo
+            total=sum((s for _, s in mesi), Decimal("0")),  # con Decimal la somma resta esatta
         )

@@ -1,4 +1,4 @@
-# src/llm/tools.py — lo strumento: lo schema che il modello vede, e il codice che solo tu esegui
+# Lo schema degli strumenti, visibile al modello, e il codice che li esegue nell'applicazione.
 import logging
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
@@ -42,14 +42,18 @@ def costruisci_strumenti(
     conti_del_portafoglio: set[str],
     leggi_saldo: Callable[[str], Awaitable[Decimal]],
 ) -> dict[str, Esecutore]:
-    """Gli strumenti di QUESTA richiesta: l'operatore non è un argomento, è nel contesto."""
+    """Crea gli strumenti per la richiesta corrente.
+
+    L'operatore è fissato dal contesto della richiesta e non compare fra gli argomenti che il
+    modello compila.
+    """
 
     async def saldo(argomenti: str) -> str:
-        try:  # 1. la forma: gli argomenti sono testo prodotto da un modello
+        try:  # 1. forma: gli argomenti sono testo generato dal modello, non fidato
             args = SaldoArgs.model_validate_json(argomenti)
         except ValidationError:
             return "ERRORE: serve account_id, l'IBAN del conto."
-        if args.account_id not in conti_del_portafoglio:  # 2. il diritto, nel codice
+        if args.account_id not in conti_del_portafoglio:  # 2. autorizzazione, verificata nel codice
             logger.warning(
                 "strumento_negato",
                 extra={
@@ -59,7 +63,7 @@ def costruisci_strumenti(
                 },
             )
             return "ERRORE: conto non disponibile per questo operatore."
-        importo = await leggi_saldo(args.account_id)  # 3. solo allora, il dato
+        importo = await leggi_saldo(args.account_id)  # 3. lettura del saldo
         return f"Saldo del conto {args.account_id}: {importo:.2f} EUR"
 
     return {"get_account_balance": saldo}

@@ -1,4 +1,4 @@
-# tests/test_pw_g4.py — l'estensione del Giorno 4: lo stream interrotto lascia il testo e il costo
+# Estensione del Giorno 4: uno stream interrotto salva il testo ricevuto e il suo costo.
 import contextlib
 import json
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
@@ -28,16 +28,16 @@ DOMANDA = "Quanto ha Paolo sul conto principale?"
 
 
 class ModelloAPezzi:
-    """Un modello finto che risponde a pezzi, con una pausa fra l'uno e l'altro.
+    """Modello finto che risponde a pezzi, con una breve pausa fra un pezzo e l'altro.
 
-    Con cade_dopo=N, dopo N pezzi solleva l'errore del fornitore, come una rete che cade.
+    Con cade_dopo=N solleva l'errore del fornitore dopo N pezzi, come se cadesse la rete.
     """
 
     model = CLAUDE
 
     def __init__(self, cade_dopo: int | None = None) -> None:
         self.cade_dopo = cade_dopo
-        self.connessione_chiusa = False  # quella con il fornitore: un modello vero la chiude
+        self.connessione_chiusa = False  # col fornitore, che un modello vero chiude
 
     async def complete(
         self, messages: list[Message], max_tokens: int = 500, tools: list[ToolSpec] | None = None
@@ -57,7 +57,7 @@ class ModelloAPezzi:
                 content="".join(PEZZI), tokens_used=300, cost_eur=Decimal("0.004"), model=CLAUDE
             )
         finally:
-            self.connessione_chiusa = True  # nel provider vero: l'uscita da messages.stream()
+            self.connessione_chiusa = True  # nel provider vero è l'uscita da messages.stream()
 
 
 @pytest.fixture(autouse=True)
@@ -88,9 +88,12 @@ def costo_atteso(testo: str) -> Decimal:
     return stima_interrotta(CLAUDE, messaggi, testo).cost_eur
 
 
-# ---------------------------------------------------------------- la proprietà
+# Proprietà dell'estensione
 async def test_lo_stream_interrotto_lascia_il_testo_arrivato_e_il_suo_costo():
-    """Il client legge due pezzi su quattro e chiude: la risposta resta, segnata e pagata."""
+    """Il client chiude dopo due pezzi su quattro.
+
+    La risposta parziale resta salvata, marcata come interrotta e con il suo costo.
+    """
     modello = ModelloAPezzi()
     async with AsyncSessionLocal() as s:
         servizio = ChatService(s, modello, SISTEMA, Decimal("5"))
@@ -99,12 +102,12 @@ async def test_lo_stream_interrotto_lascia_il_testo_arrivato_e_il_suo_costo():
         )
         letti = [await anext(pezzi), await anext(pezzi)]
         await pezzi.aclose()  # il client chiude la pagina
-        # e la chiusura arriva fino al fornitore: la generazione si ferma, non continua a vuoto
+        # la chiusura arriva fino al fornitore, così la generazione si ferma
         assert modello.connessione_chiusa
     [risposta] = await risposte_salvate()
     assert risposta.content == "".join(letti) == "Il saldo del conto principale "
     assert risposta.interrupted is True
-    # prima dell'estensione: nessuna riga, 0 € registrati. Ora il costo stimato del parziale
+    # il costo è la stima del parziale; prima dell'estensione non si salvava nulla (0 €)
     assert risposta.cost_eur == costo_atteso(risposta.content).quantize(Decimal("0.000001"))
     assert risposta.cost_eur > 0
 
@@ -120,7 +123,7 @@ async def test_una_risposta_completa_non_e_interrotta_e_porta_il_costo_vero():
     assert risposta.interrupted is False and risposta.cost_eur == Decimal("0.004")
 
 
-# ---------------------------------------------------------------- la trappola: nessuno avvisa
+# Disconnessione del client, che nessuno notifica al nostro codice
 @pytest.mark.parametrize(
     "modo",
     ["asgi23-aspetta-il-modello", "asgi23-browser-lento", "asgi24-invio-fallisce"],
@@ -128,14 +131,14 @@ async def test_una_risposta_completa_non_e_interrotta_e_porta_il_costo_vero():
 async def test_la_disconnessione_vera_del_client_arriva_fino_al_database(
     modo: str, monkeypatch: pytest.MonkeyPatch
 ):
-    """Il client chiude la pagina dopo il primo pezzo, e il server lo scopre a modo suo.
+    """Il client chiude la pagina dopo il primo pezzo e il server se ne accorge a modo suo.
 
-    Il nostro codice non riceve nessuna chiamata «il client è andato». Con ASGI 2.3, quello
-    che dichiara uvicorn, il server manda http.disconnect e Starlette annulla il task:
-    l'annullamento arriva mentre il servizio aspetta il modello, o mentre un pezzo sta ancora
-    partendo verso un browser lento a riceverlo. Con ASGI 2.4 Starlette non ascolta: è l'invio
-    del pezzo successivo a fallire con un errore di rete, e il generatore resta fermo su un
-    yield. In tutti e tre i casi la risposta va salvata, e dentro la richiesta.
+    Il nostro codice non riceve alcuna notifica dell'uscita del client. Con ASGI 2.3, la
+    versione dichiarata da uvicorn, il server manda http.disconnect e Starlette annulla il task;
+    l'annullamento arriva mentre il servizio aspetta il modello, oppure mentre un pezzo sta
+    ancora partendo verso un browser lento a riceverlo. Con ASGI 2.4 Starlette non resta in
+    ascolto: fallisce con un errore di rete l'invio del pezzo successivo, e il generatore resta
+    fermo su un yield. In tutti e tre i casi la risposta va salvata dentro la richiesta.
     """
     app.dependency_overrides[get_llm_provider] = ModelloAPezzi
     spec = "2.4" if modo.startswith("asgi24") else "2.3"
@@ -151,7 +154,7 @@ async def test_la_disconnessione_vera_del_client_arriva_fino_al_database(
             return {"type": "http.request", "body": corpo, "more_body": False}
         await primo_pezzo_inviato.wait()
         if spec == "2.4":
-            await anyio.sleep_forever()  # con 2.4 il server non avvisa: se ne accorge l'invio
+            await anyio.sleep_forever()  # con 2.4 se ne accorge solo l'invio successivo
         return {"type": "http.disconnect"}
 
     async def send(messaggio: dict[str, object]) -> None:
@@ -159,7 +162,7 @@ async def test_la_disconnessione_vera_del_client_arriva_fino_al_database(
             if spec == "2.4" and primo_pezzo_inviato.is_set():
                 raise OSError("connessione chiusa dal client")
             primo_pezzo_inviato.set()
-            if modo == "asgi23-browser-lento":  # l'invio aspetta, e lì arriva l'annullamento
+            if modo == "asgi23-browser-lento":  # l'annullamento arriva durante l'invio
                 await anyio.sleep(0.5)
         inviati.append(messaggio)
 
@@ -185,16 +188,16 @@ async def test_la_disconnessione_vera_del_client_arriva_fino_al_database(
         ordine.append("risposta salvata")
 
     monkeypatch.setattr(ChatService, "_salva", salva_e_annota)
-    # con 2.4 l'errore di rete esce dall'applicazione, ed è il server a gestirlo: qui conta
-    # solo che cosa è rimasto nel database
+    # Con 2.4 l'errore di rete esce dall'applicazione e lo gestisce il server; al test interessa
+    # solo che cosa è rimasto nel database.
     with anyio.fail_after(5), contextlib.suppress(ClientDisconnect, OSError):
         await app(scope, receive, send)  # type: ignore[arg-type]
     ordine.append("richiesta finita")  # subito, senza await in mezzo
 
     corpi = [m for m in inviati if m["type"] == "http.response.body" and m.get("body")]
     assert 1 <= len(corpi) < len(PEZZI)  # il client ha ricevuto solo l'inizio
-    # il salvataggio avviene dentro la richiesta, con la sua sessione del database ancora
-    # aperta; non più tardi, quando il garbage collector raccoglie un generatore abbandonato
+    # Il salvataggio avviene dentro la richiesta, con la sessione del database ancora aperta,
+    # e non più tardi, quando il garbage collector raccoglie il generatore abbandonato.
     assert ordine == ["risposta salvata", "richiesta finita"]
     [risposta] = await risposte_salvate()
     assert risposta.interrupted is True and risposta.content.startswith("Il saldo ")
@@ -206,7 +209,7 @@ async def test_il_fornitore_che_cade_a_meta_lascia_il_parziale_e_un_evento_di_er
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         r = await c.post("/api/ai/chat/stream", json={"session_id": "new", "message": DOMANDA})
     eventi = [e for e in r.text.split("\n\n") if e]
-    assert r.status_code == 200  # già partito: l'errore non può più essere uno stato HTTP
+    assert r.status_code == 200  # stream già partito, lo stato HTTP non cambia più
     assert eventi[-2] == 'event: error\ndata: {"error": "LLM_PROVIDER_ERROR"}'
     assert eventi[-1] == "data: [DONE]"
     [risposta] = await risposte_salvate()
@@ -214,9 +217,9 @@ async def test_il_fornitore_che_cade_a_meta_lascia_il_parziale_e_un_evento_di_er
     assert risposta.content == "Il saldo del conto principale "
 
 
-# ---------------------------------------------------------------- dalla revisione (G4.md)
+# Rilievi della revisione (G4.md)
 class ModelloCheRegistra:
-    """Un modello finto che si annota i messaggi ricevuti, e risponde «ok»."""
+    """Modello finto che registra i messaggi ricevuti e risponde «ok»."""
 
     model = CLAUDE
 
@@ -236,7 +239,7 @@ class ModelloCheRegistra:
 
 
 async def test_una_conversazione_lunga_legge_dal_database_solo_la_finestra():
-    """Revisione G4, riga 10: la storia si legge con un LIMIT, non tutta e poi tagliata."""
+    """Revisione G4, riga 10: la storia si legge con un LIMIT, senza caricarla tutta."""
     async with AsyncSessionLocal() as s:
         repo = ChatRepository(s)
         chat = await repo.create_session(user_id="mbianchi")
@@ -258,9 +261,9 @@ async def test_una_conversazione_lunga_legge_dal_database_solo_la_finestra():
             await servizio.chat(ChatRequest(session_id=chat.id, message="ancora"), "mbianchi")
     finally:
         event.remove(engine.sync_engine, "after_cursor_execute", conta)
-    # al modello: il sistema, gli ultimi 20 messaggi in ordine, la domanda
+    # il modello riceve il sistema, gli ultimi 20 messaggi in ordine e la domanda
     assert len(modello.ricevuti) == 1 + 20 + 1
     assert [m.content for m in modello.ricevuti[1:3]] == ["m480", "m481"]
     assert modello.ricevuti[-2].content == "m499"
-    # e dal database non escono 500 righe di storia: prima erano tutte (502)
+    # prima della correzione dal database uscivano tutte le righe (502)
     assert righe_lette < 50

@@ -1,5 +1,4 @@
-# scripts/ingest_docs.py — i documenti di data/docs nell'indice, attraverso l'API
-"""Manda ogni file .md di data/docs all'endpoint di ingestione del server in esecuzione.
+"""Indicizza i file .md di data/docs inviandoli all'endpoint di ingestione del server avviato.
 
 uv run uvicorn src.main:app        # in un terminale, con Ollama acceso
 uv run python -m scripts.ingest_docs
@@ -16,7 +15,7 @@ async def main() -> None:
     percorsi = await asyncio.to_thread(lambda: sorted(docs_dir.glob("*.md")))
     async with httpx.AsyncClient(timeout=60.0) as client:
         for path in percorsi:
-            # leggere un file è bloccante: dentro una coroutine si sposta su un thread
+            # la lettura del file è bloccante, quindi la coroutine la delega a un thread
             content = await asyncio.to_thread(path.read_text, encoding="utf-8")
             response = await client.post(
                 "http://localhost:8000/api/ai/documents/ingest",

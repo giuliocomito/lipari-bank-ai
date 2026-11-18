@@ -1,4 +1,3 @@
-# src/services/rag_service.py — recupera, genera, e cita solo ciò che la risposta usa
 import re
 
 from src.llm.client import LLMProvider
@@ -12,7 +11,7 @@ MARCATORE = re.compile(r"\[fonte-(\d+)\]")
 
 
 def contesto(passaggi: list[RetrievalResult]) -> str:
-    """I passaggi etichettati: senza etichette, il modello non sa quale citare."""
+    """Etichetta i passaggi con [fonte-N], così il modello può citarli."""
     return "\n\n".join(
         f"[fonte-{i}] (documento: {p.document_id})\n{p.content}"
         for i, p in enumerate(passaggi, start=1)
@@ -20,13 +19,13 @@ def contesto(passaggi: list[RetrievalResult]) -> str:
 
 
 def citazioni(risposta: str, passaggi: list[RetrievalResult]) -> list[Citation]:
-    """Le fonti che la risposta cita davvero, una volta ciascuna, nell'ordine in cui compaiono."""
+    """Le fonti citate nella risposta, senza duplicati e nell'ordine in cui compaiono."""
     usati: list[Citation] = []
     visti: set[tuple[str, str]] = set()
     for numero in MARCATORE.findall(risposta):
         indice = int(numero) - 1
         if not 0 <= indice < len(passaggi):
-            continue  # un marcatore inventato non diventa una fonte
+            continue  # marcatore senza passaggio corrispondente, inventato dal modello
         p = passaggi[indice]
         if (p.document_id, p.content) in visti:
             continue
@@ -43,7 +42,7 @@ def citazioni(risposta: str, passaggi: list[RetrievalResult]) -> list[Citation]:
 
 
 class RAGService:
-    """Recupera i passaggi, li passa al modello come vincolo, cita le fonti usate."""
+    """Risponde a partire dai passaggi recuperati e cita le fonti effettivamente usate."""
 
     def __init__(
         self,
@@ -57,13 +56,13 @@ class RAGService:
         self.embedder = embedder
         self.llm = llm
         self.prompt = prompt
-        self.max_tokens = max_tokens  # con Claude comprende anche il ragionamento
+        self.max_tokens = max_tokens  # con Claude include anche il ragionamento
 
     async def advise(self, req: AdviceRequest) -> AdviceResponse:
-        """Recupera, genera, e ritorna la risposta con le fonti che usa.
+        """Risponde alla domanda con le fonti usate.
 
-        Se il recupero non porta niente sopra la soglia, ritorna il rifiuto e nessuna
-        citazione, senza chiamare il modello.
+        Se nessun passaggio supera la soglia restituisce il rifiuto, senza citazioni e senza
+        chiamare il modello.
         """
         vettore = await self.embedder.embed_one(req.question)
         passaggi = await self.retrieval.search(vettore)
@@ -80,7 +79,7 @@ class RAGService:
             ],
             self.max_tokens,
         )
-        rifiuto = RIFIUTO in risposta.content  # il modello ha detto che non c'è: niente fonti
+        rifiuto = RIFIUTO in risposta.content  # se il modello rifiuta, le fonti non si citano
         return AdviceResponse(
             answer=risposta.content,
             citations=[] if rifiuto else citazioni(risposta.content, passaggi),

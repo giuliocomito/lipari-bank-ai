@@ -1,4 +1,4 @@
-# src/services/movement_import.py — il CSV riga per riga: ogni riga importata o spiegata
+# Import dei movimenti da CSV: ogni riga viene importata o scartata con il motivo.
 import csv
 
 from pydantic import ValidationError
@@ -7,13 +7,13 @@ from src.exceptions import FileTooLargeError, InvalidFileError
 from src.types.movements import ImportProblem, ImportResult, MovementRow
 
 INTESTAZIONE = ["date", "description", "amount", "currency"]
-# La lettura è calcolo dentro un async def: tiene fermo l'event loop. 20.000 righe (750 KB)
-# costano ~80 ms; 2 MB ne costano ~0,2 s, ed è il blocco più lungo che si accetta
+# La lettura gira dentro un async def e blocca l'event loop. 20.000 righe (750 KB) costano
+# ~80 ms, 2 MB circa 0,2 s, che è il blocco più lungo accettabile
 MASSIMO_BYTES = 2 * 1024 * 1024
 
 
 def motivo(errore: ValidationError) -> str:
-    """Il primo campo che non va, e perché: una riga, leggibile da chi ha preparato il file."""
+    """Descrive in una riga il primo campo non valido, per chi ha preparato il file."""
     e = errore.errors()[0]
     campo = ".".join(str(p) for p in e["loc"]) or "riga"
     return f"{campo}: {e['msg']}"
@@ -25,23 +25,23 @@ def importa_csv(contenuto: bytes) -> ImportResult:
     if not contenuto.strip():
         raise InvalidFileError("Il file è vuoto")
     try:
-        testo = contenuto.decode("utf-8-sig")  # -sig: toglie il BOM che Excel mette in testa
+        testo = contenuto.decode("utf-8-sig")  # -sig toglie il BOM che Excel aggiunge in testa
     except UnicodeDecodeError:
         raise InvalidFileError("Il file non è testo UTF-8: non è un CSV") from None
 
-    # Un movimento per riga del file, e ogni riga si legge da sola: una virgoletta aperta e mai
-    # chiusa, o un campo oltre il limite del modulo csv, rovinano la loro riga e non le successive
+    # Ogni riga del file si analizza da sola, così una virgoletta mai chiusa o un campo oltre
+    # il limite del modulo csv invalidano solo la propria riga e non le successive
     righe = [r.rstrip("\r") for r in testo.split("\n")]
     if next(csv.reader(righe[:1]), []) != INTESTAZIONE:
         raise InvalidFileError(f"L'intestazione deve essere {','.join(INTESTAZIONE)}")
 
     importate, problemi = 0, []
-    for numero, linea in enumerate(righe[1:], start=2):  # la riga nel file: la 1 è l'intestazione
+    for numero, linea in enumerate(righe[1:], start=2):  # riga del file; la 1 è l'intestazione
         if not linea.strip():
-            continue  # una riga vuota non è un movimento
+            continue
         try:
             campi = next(csv.reader([linea], strict=True))
-        except csv.Error:  # sollevato nel codice: se nessuno lo cattura, è un 500
+        except csv.Error:  # se sfuggisse, sarebbe un 500
             problemi.append(ImportProblem(row=numero, reason="riga illeggibile come CSV"))
             continue
         if len(campi) != len(INTESTAZIONE):
@@ -50,7 +50,7 @@ def importa_csv(contenuto: bytes) -> ImportResult:
             continue
         try:
             MovementRow.model_validate(dict(zip(INTESTAZIONE, campi, strict=True)))
-        except ValidationError as e:  # costruito nel codice: se nessuno lo cattura, è un 500
+        except ValidationError as e:  # anche questo, se sfuggisse, sarebbe un 500
             problemi.append(ImportProblem(row=numero, reason=motivo(e)))
             continue
         importate += 1

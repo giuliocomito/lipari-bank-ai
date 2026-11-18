@@ -1,4 +1,4 @@
-# src/types/glossary.py — il contratto del glossario interno
+# Contratto del glossario interno.
 from pydantic import BaseModel, Field
 
 

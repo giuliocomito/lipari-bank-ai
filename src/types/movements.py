@@ -1,4 +1,4 @@
-# src/types/movements.py — una riga dell'estratto, e l'esito dell'importazione
+# Riga dell'estratto CSV ed esito dell'importazione.
 import datetime as dt
 import re
 from decimal import Decimal
@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MovementRow(BaseModel):
-    """Una riga del CSV: le stesse regole del singolo movimento, più la data."""
+    """Riga del CSV, con le stesse regole del singolo movimento più quella sulla data."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -19,12 +19,12 @@ class MovementRow(BaseModel):
     @field_validator("date", mode="before")
     @classmethod
     def solo_aaaa_mm_gg(cls, v: object) -> object:
-        # Da solo Pydantic accetterebbe anche "1756684800" (un timestamp: il 2025-09-01) e
-        # "2026-09-01T00:00:00": il contratto ne ammette una. Che la data esista lo controlla
-        # poi il tipo: il 2026-02-30 non passa.
+        # Pydantic accetterebbe anche "1756684800" (un timestamp, il 2025-09-01) e
+        # "2026-09-01T00:00:00", mentre il contratto ammette solo AAAA-MM-GG. Che la data
+        # esista lo verifica poi il tipo, che rifiuta per esempio il 2026-02-30.
         if not isinstance(v, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v.strip()):
             raise ValueError("la data va scritta AAAA-MM-GG")
-        return v.strip()  # quella che si è controllata: lo spazio davanti non arriva al tipo
+        return v.strip()  # la stringa controllata, senza spazi ai bordi
 
 
 class ImportProblem(BaseModel):
