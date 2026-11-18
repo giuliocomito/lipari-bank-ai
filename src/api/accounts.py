@@ -1,4 +1,4 @@
-# src/api/accounts.py — i movimenti e la spesa di un conto del portafoglio
+# Movimenti e spesa di un conto del portafoglio.
 import datetime as dt
 from typing import Annotated
 
@@ -11,8 +11,8 @@ from src.types.accounts import MovementIn, MovementOut, MovementPosted, Spending
 
 router = APIRouter(prefix="/api/ai/accounts", tags=["Accounts"])
 
-# L'operatore è finto, come l'utente della chat: dal Giorno 6 arriva dal token, e questa riga
-# cambia. Il filtro per portafoglio invece c'è già, ed è nelle query.
+# Operatore fisso, come l'utente della chat: dal Giorno 6 verrà letto dal token.
+# Il filtro per portafoglio è già applicato nelle query.
 OPERATORE = "mbianchi"
 
 

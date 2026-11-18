@@ -1,4 +1,4 @@
-# src/config.py — la configurazione: se manca qualcosa, il progetto non parte e dice cosa
+# Configurazione dell'applicazione e controllo dei valori all'avvio.
 import re
 import sys
 from decimal import Decimal
@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict, SettingsError
 
 
 class Settings(BaseSettings):
-    """La configurazione del progetto, letta dall'ambiente e dal file `.env`."""
+    """Configurazione letta dalle variabili d'ambiente e dal file `.env`."""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -17,36 +17,39 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     debug: bool = False
 
-    # obbligatorie, e non vuote: una riga «DATABASE_URL=» nel .env non basta a far partire.
-    # La description è quella che legge chi avvia, quando la variabile manca.
+    # Obbligatorie e non vuote: una riga «DATABASE_URL=» nel .env non basta per avviare.
+    # La description compare nel messaggio d'errore quando la variabile manca.
     database_url: str = Field(
         min_length=1,
         description="la stringa di connessione, postgresql+asyncpg://utente:password@host:5432/nome",
     )
     jwt_secret: str = Field(
-        min_length=32,  # HS256 vuole una chiave di almeno 256 bit
+        min_length=32,  # HS256 richiede una chiave di almeno 256 bit
         description="un segreto di almeno 32 caratteri: "
         'uv run python -c "import secrets; print(secrets.token_urlsafe(48))"',
     )
 
-    # facoltative all'avvio: servono dal Giorno 4, e la sonda dice se ci sono
+    # Facoltative all'avvio: servono dal Giorno 4, e la sonda segnala se sono presenti.
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
-    # dal Giorno 4 il modello è Claude: il fornitore lo sceglie il prefisso, claude- o gpt-
+    # Dal Giorno 4 il modello è Claude; il prefisso del nome (claude- o gpt-) sceglie il fornitore.
     default_model: str = "claude-opus-5-5"
-    # quanto ragiona Claude prima di rispondere, e quindi quanto spende: low, medium o high
+    # Quanto ragiona Claude prima di rispondere, e quindi quanto spende: low, medium o high.
     llm_effort: Literal["low", "medium", "high"] = "low"
-    embedding_model: str = "text-embedding-3-small"
+    # Embedding, dal Giorno 5. Anthropic non offre un modello di embedding, quindi si usa
+    # bge-m3 in locale, servito da Ollama con un'API compatibile con quella di OpenAI.
+    embedding_model: str = "bge-m3"
+    embedding_base_url: str = "http://localhost:11434/v1"
     max_tokens_per_request: int = 2000
-    daily_budget_eur: Decimal = Decimal("5.00")  # il tetto di spesa del modello, al giorno
+    daily_budget_eur: Decimal = Decimal("5.00")  # tetto di spesa giornaliero per il modello
 
-    # dal Giorno 2: le pagine che possono leggere le risposte. Nel .env si scrive in JSON
+    # Dal Giorno 2: le origini a cui il CORS consente di leggere le risposte. Nel .env va in JSON.
     cors_origins: list[str] = ["http://localhost:5173"]
 
 
 def spiega(errore: ValidationError) -> str:
-    """Da un errore di validazione al messaggio per chi avvia: quale variabile, cosa ci va, dove."""
+    """Trasforma l'errore di validazione in un messaggio: quale variabile correggere e come."""
     righe = ["Configurazione non valida: il progetto non parte."]
     for e in errore.errors():
         campo = str(e["loc"][0])
@@ -62,11 +65,10 @@ def carica() -> Settings:
     try:
         return Settings()
     except ValidationError as e:
-        # SystemExit con un testo: il messaggio va su stderr e il processo esce con codice 1,
-        # senza un traceback che parla d'altro
+        # sys.exit con una stringa la scrive su stderr ed esce con codice 1, senza traceback.
         sys.exit(spiega(e))
     except SettingsError as e:
-        # dal Giorno 2: un valore che non si riesce nemmeno a leggere, come una lista senza JSON
+        # Dal Giorno 2: un valore illeggibile, per esempio una lista non scritta in JSON.
         trovato = re.search(r'field "(\w+)"', str(e))
         nome = trovato.group(1).upper() if trovato else "una variabile"
         sys.exit(
@@ -76,4 +78,4 @@ def carica() -> Settings:
         )
 
 
-settings = carica()  # qui, in avvio: se manca qualcosa, il processo si ferma e dice cosa
+settings = carica()  # all'import: una configurazione errata ferma il processo prima di servire

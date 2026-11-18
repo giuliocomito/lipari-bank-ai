@@ -1,12 +1,11 @@
-# src/llm/stima.py — il costo di una risposta interrotta, quando il fornitore non l'ha detto
-"""La stima del consumo di uno stream che non è arrivato alla fine.
+"""Stima del consumo di uno stream interrotto prima della fine.
 
-Il conteggio esatto dei token arriva solo con l'ultimo evento dello stream: se il client chiude
-la pagina, o il fornitore cade, quell'evento non arriva mai. La generazione però c'è stata, e
-si paga. Qui si stima dai caratteri: il glossario di Anthropic dice che sui modelli precedenti
-un token vale circa 3,5 caratteri di testo inglese e che i modelli recenti producono circa il
-30% di token in più, quindi 3,5 / 1,3 ≈ 2,7 caratteri per token. È una stima, e lo resta: non
-conta i token di ragionamento, che lo stream non mostra, quindi sull'output è per difetto.
+Il conteggio esatto dei token arriva solo con l'ultimo evento dello stream, che manca se il
+client chiude la pagina o il fornitore cade. La generazione avvenuta va comunque pagata, quindi
+qui la si stima dai caratteri. Secondo il glossario di Anthropic, sui modelli precedenti un
+token vale circa 3,5 caratteri di testo inglese e i modelli recenti producono circa il 30% di
+token in più: 3,5 / 1,3 ≈ 2,7 caratteri per token. La stima non conta i token di
+ragionamento, che lo stream non mostra, quindi per l'output è per difetto.
 """
 
 import math
@@ -25,7 +24,7 @@ def token_stimati(testo: str) -> int:
 
 
 def stima_interrotta(modello: str, messaggi: list[Message], testo_parziale: str) -> LLMResponse:
-    """Il consumo stimato di una risposta fermata a metà: tutto l'input, l'output arrivato."""
+    """Stima il consumo di una risposta interrotta: tutto l'input e l'output ricevuto fin lì."""
     entrata = sum(token_stimati(m.content) for m in messaggi)
     uscita = token_stimati(testo_parziale)
     prezzo_in, prezzo_out = LISTINO.get(modello, (Decimal("0"), Decimal("0")))

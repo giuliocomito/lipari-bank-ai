@@ -1,4 +1,4 @@
-# src/api/categorize.py — la categorizzazione, dal modello e validata
+# Categorizzazione dei movimenti con il modello, con risposta validata.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -22,7 +22,7 @@ def get_categorize_service(
     strutturato: Annotated[Strutturato, Depends(get_strutturato)],
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> CategorizeService:
-    # il tetto della chat vale anche qui: ogni chiamata al modello spende, non solo la chat
+    # Il tetto di spesa della chat vale anche qui: ogni chiamata al modello ha un costo.
     costi = CostTracker(ChatRepository(session), settings.daily_budget_eur)
     return CategorizeService(strutturato, CATEGORIZE_PROMPT, costi)
 

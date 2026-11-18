@@ -1,9 +1,8 @@
-# scripts/misura_stream_interrotto.py — cosa resta nel database se il client chiude a metà
-"""La misura dell'estensione del Giorno 4.
+"""Misura dell'estensione del Giorno 4: che cosa resta nel database se il client chiude a metà.
 
 Un modello finto risponde in quattro pezzi; il «client» ne legge due e poi chiude, come chi
-chiude la pagina. Lo script conta cosa è finito nella tabella dei messaggi: quante risposte,
-con quale testo e con quale costo. Non chiama nessun modello vero e usa il database di test.
+chiude la pagina. Lo script riporta che cosa è finito nella tabella dei messaggi: quante
+risposte, con quale testo e con quale costo. Non chiama modelli veri e usa il database di test.
 
     uv run python -m scripts.misura_stream_interrotto
 """
@@ -27,11 +26,11 @@ from src.services.chat_service import ChatService  # noqa: E402
 from src.types.chat import ChatRequest  # noqa: E402
 
 PEZZI = ["Il saldo ", "del conto principale ", "di Paolo Ferri ", "è di 48.200,00 euro."]
-COSTO_INTERO = Decimal("0.004")  # quello che il finto dichiarerebbe a risposta finita
+COSTO_INTERO = Decimal("0.004")  # il costo che il finto dichiarerebbe a risposta completa
 
 
 class ModelloAPezzi:
-    """Risponde a pezzi, con una piccola pausa fra l'uno e l'altro, come un modello vero."""
+    """Risponde a pezzi con una breve pausa fra l'uno e l'altro, come un modello vero."""
 
     model = "claude-opus-5-5"
 

@@ -1,4 +1,4 @@
-# scripts/seed_accounts.py — i clienti, i conti e i movimenti della banca, per sviluppo e prove
+# Clienti, conti e movimenti di esempio della banca, per lo sviluppo e le prove.
 import asyncio
 from datetime import date, timedelta
 from decimal import Decimal
@@ -10,7 +10,7 @@ from src.db.session import AsyncSessionLocal
 
 CLIENTI = [  # (codice cliente, nome, operatore che lo ha in portafoglio)
     ("C-10234", "Paolo Ferri", "mbianchi"),
-    ("C-20417", "Anna Greco", "pgalli"),  # un collega di un'altra filiale
+    ("C-20417", "Anna Greco", "pgalli"),  # operatore di un'altra filiale
 ]
 CONTI = [  # (iban, codice cliente, etichetta, saldo)
     ("IT60X0542811101000000123", "C-10234", "principale", Decimal("48200.00")),
@@ -18,7 +18,7 @@ CONTI = [  # (iban, codice cliente, etichetta, saldo)
     ("IT60X0542811101000000789", "C-20417", "principale", Decimal("15300.00")),
 ]
 PRINCIPALE, RISPARMIO, ANNA = (c[0] for c in CONTI)
-MOVIMENTI = [  # (iban, giorni fa, descrizione, importo): negativo = uscita
+MOVIMENTI = [  # (iban, giorni fa, descrizione, importo); gli importi negativi sono uscite
     (PRINCIPALE, 3, "Bonifico estero verso Panama", Decimal("-9800.00")),
     (PRINCIPALE, 11, "Bonifico estero verso Panama", Decimal("-9500.00")),
     (PRINCIPALE, 15, "Accredito stipendio", Decimal("2850.00")),
@@ -46,7 +46,7 @@ MOVIMENTI = [  # (iban, giorni fa, descrizione, importo): negativo = uscita
     (PRINCIPALE, 14, "Netflix", Decimal("-12.99")),
     (PRINCIPALE, 44, "Netflix", Decimal("-12.99")),
     (PRINCIPALE, 74, "Netflix", Decimal("-12.99")),
-    # le commissioni: tanti 0.10 e 0.20, cioè i valori che in virgola mobile non tornano
+    # commissioni da 0.10 e 0.20, valori che in virgola mobile non si sommano in modo esatto
     (PRINCIPALE, 2, "Commissione bonifico", Decimal("-0.10")),
     (PRINCIPALE, 4, "Commissione bonifico", Decimal("-0.20")),
     (PRINCIPALE, 10, "Commissione bonifico", Decimal("-0.10")),
@@ -69,7 +69,7 @@ async def main() -> None:
             print("Clienti già presenti: nessuna azione.")
             return
         # Un flush per gruppo, nell'ordine delle chiavi esterne: i modelli non dichiarano
-        # relationship(), e senza la sessione non sa che un conto va scritto dopo il suo cliente
+        # relationship(), quindi la sessione non sa che un conto va scritto dopo il suo cliente.
         session.add_all(Customer(id=c, full_name=n, operator=o) for c, n, o in CLIENTI)
         await session.flush()
         session.add_all(Account(id=i, customer_id=c, label=e, balance=s) for i, c, e, s in CONTI)

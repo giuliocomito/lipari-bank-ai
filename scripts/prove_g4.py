@@ -1,11 +1,10 @@
-# scripts/prove_g4.py — le prove del Project Work G4, con un comando solo
-"""Le cinque prove di «Come si vede che è fatta», attraverso l'applicazione vera.
+"""Esegue con un solo comando le cinque prove di «Come si vede che è fatta» del Project Work G4.
 
 Ogni prova manda una richiesta HTTP all'applicazione FastAPI, che passa per gli endpoint, i
 servizi, la factory, i provider e gli SDK veri di Anthropic e di OpenAI. Solo il server del
-fornitore è finto: risponde con messaggi preparati, così le prove non hanno bisogno di una
-chiave API, non spendono niente e danno ogni volta lo stesso risultato. Il database è quello
-di test, svuotato e ripopolato con il seed.
+fornitore è finto e risponde con messaggi preparati, quindi le prove non richiedono una chiave
+API, non costano nulla e danno sempre lo stesso risultato. Il database è quello di test,
+svuotato e ripopolato con il seed.
 
     uv run python -m scripts.prove_g4
 """
@@ -48,7 +47,7 @@ RISULTATI: list[tuple[str, bool, str]] = []
 
 
 class Raccolta(logging.Handler):
-    """Tiene i record di log, con i campi extra, per mostrarli alla fine della prova."""
+    """Conserva i record di log con i campi extra, per mostrarli alla fine della prova."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -69,7 +68,7 @@ def esito(nome: str, ok: bool, dettaglio: str) -> None:
 
 
 def usa_fornitori_finti(gestore_claude: Registro, gestore_gpt: Registro) -> None:
-    """La factory vera, ma con i client degli SDK puntati sui server finti."""
+    """Usa la factory vera con i client degli SDK puntati sui server finti."""
 
     def risponde_claude(r: httpx2.Request) -> httpx2.Response:
         gestore_claude.annota(r)
@@ -90,12 +89,12 @@ def usa_fornitori_finti(gestore_claude: Registro, gestore_gpt: Registro) -> None
 
 
 async def prova_contratto(c: AsyncClient) -> None:
-    """La stessa domanda con DEFAULT_MODEL cambiato, e nessuna riga di codice toccata."""
+    """Ripete la stessa domanda cambiando solo DEFAULT_MODEL, senza toccare il codice."""
     reg_claude, reg_gpt = Registro(), Registro()
     usa_fornitori_finti(reg_claude, reg_gpt)
     righe = []
     for modello in (CLAUDE, GPT):
-        settings.default_model = modello  # l'unica cosa che cambia: la configurazione
+        settings.default_model = modello
         r = await c.post(
             "/api/ai/chat", json={"session_id": "new", "message": "Cosa serve per aprire un conto?"}
         )
@@ -111,7 +110,7 @@ async def prova_contratto(c: AsyncClient) -> None:
 
 
 async def prova_conto_di_anna(c: AsyncClient) -> None:
-    """Il modello prova a leggere un conto di un altro portafoglio: rifiuta lo strumento."""
+    """Il modello chiede il saldo di un conto di un altro portafoglio e lo strumento lo rifiuta."""
     raccolta = Raccolta()
     logging.getLogger("src.llm.tools").addHandler(raccolta)
 
@@ -124,7 +123,7 @@ async def prova_conto_di_anna(c: AsyncClient) -> None:
             for b in m["content"]
             if b.get("type") == "tool_result"
         ]
-        if not risultati:  # il modello «gentile» chiede il saldo che l'utente gli ha dato
+        if not risultati:  # il modello asseconda l'utente e chiede quel saldo
             return messaggio_anthropic(
                 "", strumenti=[("t1", "get_account_balance", {"account_id": ANNA})]
             )
@@ -166,7 +165,7 @@ async def prova_tetto_a_zero(c: AsyncClient) -> None:
 
 
 async def prova_fuori_schema(c: AsyncClient) -> None:
-    """Un movimento incomprensibile, e un modello che risponde con una categoria inventata."""
+    """Categorizza un movimento incomprensibile con un modello che inventa la categoria."""
     reg = Registro()
 
     def risponde(r: httpx2.Request) -> httpx2.Response:
@@ -200,7 +199,7 @@ async def prova_stream_interrotto() -> None:
             await s.scalars(
                 select(ChatMessage)
                 .where(ChatMessage.role == "assistant")
-                .order_by(ChatMessage.created_at.desc())
+                .order_by(ChatMessage.seq.desc())
             )
         ).first()
     ok = salvata is not None and salvata.interrupted and salvata.content == "".join(letti)

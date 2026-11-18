@@ -1,4 +1,3 @@
-# src/llm/anthropic_provider.py — lo stesso contratto, tradotto nella lingua di Anthropic
 import json
 import logging
 from collections.abc import AsyncGenerator, Sequence
@@ -22,9 +21,9 @@ from src.llm.types import LLMResponse, Message, ToolCall, ToolSpec
 
 logger = logging.getLogger(__name__)
 
-# EUR per 1000 token, (input, output). Fotografia del listino Anthropic in dollari
+# EUR per 1000 token, nell'ordine (input, output). Listino Anthropic in dollari
 # (Opus 5.5: 4 $ / 20 $ per milione; Haiku 5.5: 0,10 $ / 0,50 $ fino a 100K token di prompt),
-# convertita al cambio BCE del 6/11/2026, 1 EUR = 1,1165 USD. Va riaggiornata con una data.
+# convertito al cambio BCE del 6/11/2026 (1 EUR = 1,1165 USD). Va aggiornato insieme alla data.
 PRICING: dict[str, tuple[Decimal, Decimal]] = {
     "claude-opus-5-5": (Decimal("0.0035826"), Decimal("0.0179131")),
     "claude-haiku-5-5": (Decimal("0.0000896"), Decimal("0.0004478")),
@@ -35,17 +34,17 @@ RIFIUTO = "Non posso rispondere a questa richiesta."
 
 
 def _dividi(messages: list[Message]) -> tuple[str, list[MessageParam]]:
-    """Il prompt di sistema a parte; il resto nei due soli ruoli che Anthropic ammette."""
+    """Separa il prompt di sistema e traduce il resto nei soli ruoli user e assistant."""
     sistema = "\n\n".join(m.content for m in messages if m.role == "system")
     resto: list[MessageParam] = []
-    risultati: list[ToolResultBlockParam] = []  # i risultati degli strumenti, raccolti
+    risultati: list[ToolResultBlockParam] = []
     for m in messages:
         if m.role == "tool":
             risultati.append(
                 {"type": "tool_result", "tool_use_id": m.tool_call_id or "", "content": m.content}
             )
             continue
-        if risultati:  # tutti i risultati di un giro vanno in un solo messaggio dell'utente
+        if risultati:  # Anthropic vuole i risultati di un giro in un unico messaggio user
             resto.append({"role": "user", "content": risultati})
             risultati = []
         if m.role == "user":
@@ -73,12 +72,12 @@ def _strumenti(tools: list[ToolSpec]) -> list[ToolParam]:
 
 
 class AnthropicProvider:
-    """Claude dietro il contratto.
+    """LLMProvider per i modelli Claude.
 
-    Due differenze dal corso, che parla di gpt-4o-mini. I modelli Claude attuali non accettano
-    temperature (la richiesta torna con un 400): la leva è effort, che regola quanto il modello
-    ragiona e quindi quanti token spende. E il ragionamento è acceso, e si paga come output:
-    i token di pensiero stanno in usage.output_tokens, e max_tokens li comprende.
+    Rispetto a gpt-4o-mini, usato nel corso, cambiano due cose. I modelli Claude attuali
+    rispondono 400 a temperature, quindi si regola effort, che decide quanto il modello ragiona
+    e di conseguenza quanti token consuma. Il ragionamento è attivo e si paga come output: i
+    token di pensiero rientrano in usage.output_tokens e nel limite di max_tokens.
     """
 
     def __init__(self, client: AsyncAnthropic, model: str, effort: Effort = "low") -> None:
@@ -96,9 +95,9 @@ class AnthropicProvider:
         self, blocchi: Sequence[ContentBlock], usage: Usage, stop_reason: str | None
     ) -> LLMResponse:
         prezzo_in, prezzo_out = PRICING[self._model]
-        # il testo sta nei blocchi "text"; i blocchi "thinking" non si mostrano e non si salvano
+        # si tiene solo il testo dei blocchi "text"; il ragionamento non si mostra né si salva
         testo = "".join(b.text for b in blocchi if b.type == "text")
-        if stop_reason == "refusal":  # i classificatori di sicurezza: 200, ma nessuna risposta
+        if stop_reason == "refusal":  # bloccata dai classificatori di sicurezza, con stato 200
             logger.warning("modello_rifiuta", extra={"model": self._model})
             testo = RIFIUTO
         return LLMResponse(
@@ -120,7 +119,7 @@ class AnthropicProvider:
         try:
             r = await self._client.messages.create(
                 model=self._model,
-                max_tokens=max_tokens,  # obbligatorio, e senza valore di riserva
+                max_tokens=max_tokens,  # obbligatorio per Anthropic, che non ha un default
                 system=sistema,
                 messages=resto,
                 tools=_strumenti(tools) if tools else omit,

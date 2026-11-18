@@ -1,4 +1,4 @@
-# src/api/glossary.py — lo stesso schema sul caso più semplice
+# Glossario dei termini interni: lo stesso schema degli altri router, nel caso più semplice.
 from fastapi import APIRouter
 
 from src.exceptions import NotFoundError

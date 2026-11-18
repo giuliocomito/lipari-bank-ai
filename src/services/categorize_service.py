@@ -1,4 +1,4 @@
-# src/services/categorize_service.py — lo schema imposto al modello, e validato
+# Categorizzazione tramite modello, con output vincolato allo schema e validato.
 import anthropic
 import openai
 from instructor.core import InstructorRetryException
@@ -18,11 +18,11 @@ class CategorizeService:
     ) -> None:
         self.strutturato = strutturato
         self.system_prompt = system_prompt
-        self.costi = costi  # il tetto della chat: l'endpoint lo passa sempre
+        self.costi = costi  # lo stesso tetto di spesa della chat; l'endpoint lo passa sempre
 
     async def categorize(self, req: CategorizeRequest) -> CategorizeResponse:
         if self.costi is not None:
-            await self.costi.verifica()  # prima di spendere: ogni chiamata al modello spende
+            await self.costi.verifica()  # il tetto si controlla prima di chiamare il modello
         s = self.strutturato
         try:
             return await s.client.chat.completions.create(
@@ -37,12 +37,12 @@ class CategorizeService:
                     },
                 ],
                 max_retries=2,  # ogni nuovo tentativo è una chiamata pagata
-                max_tokens=1000,  # con Claude comprende il ragionamento, anche a effort low
-                **s.opzioni,  # quello che il fornitore vuole o rifiuta: lo sa la factory
+                max_tokens=1000,  # con Claude include il ragionamento, anche con effort low
+                **s.opzioni,  # parametri specifici del fornitore, decisi dalla factory
             )
         except InstructorRetryException as e:
-            # lo schema non rispettato nemmeno dopo i tentativi, già pagati: è un guasto del
-            # fornitore, non un bug nostro, e il client riceve il 502 della chat
+            # lo schema non è rispettato nemmeno dopo i tentativi (già pagati). Lo trattiamo come
+            # guasto del fornitore, e il client riceve lo stesso 502 della chat
             raise LLMProviderError(s.fornitore, f"risposta fuori schema: {e}") from e
-        except (openai.APIError, anthropic.APIError) as e:  # giù, modello sconosciuto, chiave
+        except (openai.APIError, anthropic.APIError) as e:  # servizio giù, modello o chiave errati
             raise LLMProviderError(s.fornitore, str(e)) from e

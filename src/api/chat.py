@@ -1,4 +1,4 @@
-# src/api/chat.py — la chat, con il modello, intera o in streaming
+# Chat con il modello, con la risposta intera o in streaming.
 import json
 from collections.abc import AsyncGenerator
 from typing import Annotated
@@ -19,7 +19,7 @@ from src.types.chat import ChatRequest, ChatResponse
 router = APIRouter(prefix="/api/ai", tags=["Chat"])
 
 SYSTEM_PROMPT = load_prompt("chat_system_v1")
-OPERATORE = "mbianchi"  # finto: l'operatore del seed, finché non arriva l'autenticazione (G6)
+OPERATORE = "mbianchi"  # l'operatore del seed, provvisorio fino all'autenticazione (G6)
 
 
 def get_chat_service(
@@ -50,14 +50,15 @@ async def chat_stream(
     pezzi = await service.chat_stream(req, user_id=OPERATORE)  # un 404 esce qui, prima dello stream
 
     async def eventi() -> AsyncGenerator[str, None]:
-        # se il client chiude la pagina, il salvataggio della parte già generata lo fa il
-        # servizio (ChatService._pezzi, nel suo finally): qui non serve fare altro
+        # Se il client chiude la pagina, la parte già generata la salva il servizio,
+        # nel finally di ChatService._pezzi.
         try:
             async for pezzo in pezzi:
-                # ogni evento è JSON: un a capo dentro il testo non rompe il formato
+                # In JSON, perché un a capo nel testo spezzerebbe l'evento.
                 yield f"data: {json.dumps({'text': pezzo}, ensure_ascii=False)}\n\n"
         except LLMProviderError as errore:
-            # il 200 è già partito: l'errore arriva come evento, e la risposta parziale è salvata
+            # Il 200 è già stato inviato, quindi l'errore viaggia come evento.
+            # La risposta parziale è comunque salvata.
             yield f"event: error\ndata: {json.dumps({'error': errore.code})}\n\n"
         yield "data: [DONE]\n\n"
 

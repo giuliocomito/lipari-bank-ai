@@ -1,4 +1,4 @@
-# tests/test_g4.py — la voce: gli SDK veri, con le API finte a livello HTTP
+# Giorno 4: i provider con gli SDK veri, su API finte a livello HTTP.
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator
@@ -47,7 +47,7 @@ CONTO_DI_MARCO, _, CONTO_DI_ANNA = (c[0] for c in seed_accounts.CONTI)
 
 @pytest.fixture(autouse=True)
 async def tabelle_vuote() -> AsyncIterator[None]:
-    await engine.dispose()  # le connessioni dei TestClient degli altri test: via dal pool
+    await engine.dispose()  # toglie dal pool le connessioni dei TestClient di altri test
     async with engine.begin() as c:
         await c.execute(
             text("TRUNCATE chat_messages, chat_sessions, movements, accounts, customers CASCADE")
@@ -57,21 +57,21 @@ async def tabelle_vuote() -> AsyncIterator[None]:
 
 @pytest.fixture(autouse=True)
 def override_ripristinati() -> Iterator[None]:
-    prima = dict(app.dependency_overrides)  # i finti della sessione, dal conftest della radice
+    prima = dict(app.dependency_overrides)  # i finti installati dal conftest della radice
     yield
     app.dependency_overrides.clear()
     app.dependency_overrides.update(prima)
 
 
 def client_con(gestore: Gestore) -> AsyncClient:
-    """L'applicazione con il provider di Claude vero, su un'API finta."""
+    """Client dell'applicazione con il provider di Claude vero, collegato a un'API finta."""
     provider = AnthropicProvider(anthropic_finto(gestore), CLAUDE)
     app.dependency_overrides[get_llm_provider] = lambda: provider
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
 def strutturato_finto(gestore: Gestore) -> Strutturato:
-    """Instructor su Claude, con le opzioni della factory vera e l'API finta."""
+    """Instructor su Claude con le opzioni della factory vera, collegato all'API finta."""
     return Strutturato(
         client=instructor.from_anthropic(anthropic_finto(gestore)),
         model=CLAUDE,
@@ -80,7 +80,7 @@ def strutturato_finto(gestore: Gestore) -> Strutturato:
     )
 
 
-# ---------------------------------------------------------------- i due provider
+# Provider
 async def test_claude_traduce_conta_e_non_manda_temperature():
     reg = Registro()
 
@@ -90,13 +90,13 @@ async def test_claude_traduce_conta_e_non_manda_temperature():
 
     esito = await AnthropicProvider(anthropic_finto(gestore), CLAUDE).complete(MSG, max_tokens=300)
     corpo = reg.richieste[0]
-    assert corpo["system"] == "Sei l'assistente."  # il sistema è un parametro a sé
+    assert corpo["system"] == "Sei l'assistente."  # fuori dall'elenco dei messaggi
     assert [m["role"] for m in corpo["messages"]] == ["user"]
     assert corpo["max_tokens"] == 300 and corpo["output_config"] == {"effort": "low"}
-    assert "temperature" not in corpo and "tools" not in corpo  # Claude la rifiuterebbe: 400
-    assert esito.content == "Buongiorno"  # il pensiero non esce nella risposta
+    assert "temperature" not in corpo and "tools" not in corpo  # con temperature Claude dà 400
+    assert esito.content == "Buongiorno"  # il pensiero resta fuori dalla risposta
     assert esito.tokens_used == 1500
-    # 1000 · 0.0035826 / 1000 + 500 · 0.0179131 / 1000, esatto: il pensiero è nell'output
+    # 1000 · 0.0035826 / 1000 + 500 · 0.0179131 / 1000, con il pensiero contato nell'output
     assert esito.cost_eur == Decimal("0.01253915")
 
 
@@ -129,7 +129,7 @@ async def test_il_gemello_openai_traduce_e_conta():
 
     esito = await OpenAIProvider(openai_finto(gestore), "gpt-4o-mini").complete(MSG, max_tokens=300)
     assert [m["role"] for m in reg.richieste[0]["messages"]] == ["system", "user"]
-    assert "tools" not in reg.richieste[0]  # senza strumenti, il parametro non parte nemmeno
+    assert "tools" not in reg.richieste[0]  # senza strumenti il parametro non viene inviato
     assert esito.content == "Buongiorno" and esito.tokens_used == 1500
     assert esito.cost_eur == Decimal("0.00042")  # 1000·0.00014/1000 + 500·0.00056/1000
     pezzi = [
@@ -160,7 +160,7 @@ async def test_l_sdk_riprova_i_transitori_e_non_gli_altri():
 
 
 async def test_gli_strumenti_nelle_due_lingue():
-    """Lo stesso giro — il modello chiede, lo strumento risponde — tradotto dai due provider."""
+    """I due provider traducono lo stesso giro di strumento, richiesta e risultato."""
     richiesta = ToolCall(id="t1", name="get_account_balance", arguments='{"account_id": "IT60X"}')
     giro = [
         *MSG,
@@ -183,7 +183,7 @@ async def test_gli_strumenti_nelle_due_lingue():
     esito_a = await AnthropicProvider(anthropic_finto(gestore_a), CLAUDE).complete(
         giro, tools=TOOLS_SCHEMA
     )
-    # OpenAI: lo strumento in "function", il risultato come ruolo "tool"
+    # OpenAI mette lo strumento in "function" e il risultato in un messaggio con ruolo "tool"
     corpo_o = reg_o.richieste[0]
     assert corpo_o["tools"][0]["function"]["name"] == "get_account_balance"
     assert corpo_o["messages"][2]["tool_calls"][0]["id"] == "t1"
@@ -192,20 +192,21 @@ async def test_gli_strumenti_nelle_due_lingue():
         "tool_call_id": "t1",
         "content": "Saldo: 48200.00 EUR",
     }
-    # Anthropic: lo schema in input_schema, la richiesta come blocco, il risultato dall'utente
+    # Anthropic mette lo schema in input_schema, la richiesta in un blocco tool_use e il
+    # risultato in un messaggio dell'utente
     corpo_a = reg_a.richieste[0]
     assert corpo_a["tools"][0]["input_schema"] == TOOLS_SCHEMA[0].parameters
     assert corpo_a["messages"][1]["content"][0]["type"] == "tool_use"
     assert corpo_a["messages"][2]["role"] == "user"
     assert corpo_a["messages"][2]["content"][0]["tool_use_id"] == "t1"
-    # e le due risposte, tornate nella stessa forma
+    # le risposte dei due provider arrivano nella stessa forma
     for esito in (esito_o, esito_a):
         assert [(c.id, c.name, json.loads(c.arguments)) for c in esito.tool_calls] == [
             ("t2", "get_account_balance", {"x": 1})
         ]
 
 
-# ---------------------------------------------------------------- la factory
+# Factory
 async def test_senza_chiave_la_chat_dice_quale_manca(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "anthropic_api_key", "")
     monkeypatch.setattr(settings, "default_model", CLAUDE)
@@ -238,7 +239,7 @@ def test_la_factory_sceglie_dal_prefisso_e_fallisce_forte(monkeypatch: pytest.Mo
         cache.cache_clear()
 
 
-# ---------------------------------------------------------------- la chat
+# Chat
 async def test_la_conversazione_tiene_il_filo_e_salva_il_costo():
     reg = Registro()
 
@@ -257,8 +258,8 @@ async def test_la_conversazione_tiene_il_filo_e_salva_il_costo():
     assert seconda["max_tokens"] == settings.max_tokens_per_request
     async with AsyncSessionLocal() as s:
         salvati = (await s.scalars(select(ChatMessage).where(ChatMessage.session_id == sid))).all()
-    # 50 token in entrata e 10 in uscita costano 0.000358261: la colonna a sei decimali
-    # salva 0.000358
+    # 50 token in entrata e 10 in uscita costano 0.000358261, che la colonna a sei decimali
+    # salva come 0.000358
     assert [m.cost_eur for m in salvati if m.role == "assistant"] == [Decimal("0.000358")] * 2
     assert {m.model_used for m in salvati if m.role == "assistant"} == {CLAUDE}
 
@@ -293,7 +294,7 @@ async def test_il_giro_dello_strumento_legge_il_saldo_e_conta_due_chiamate():
 
     async with client_con(gestore) as c:
         r = await c.post("/api/ai/chat", json={"session_id": "new", "message": "Saldo di Paolo?"})
-    assert r.status_code == 200 and len(reg.richieste) == 2  # chiede, poi risponde
+    assert r.status_code == 200 and len(reg.richieste) == 2
     assert r.json()["tool_calls"] == [
         {
             "name": "get_account_balance",
@@ -302,7 +303,7 @@ async def test_il_giro_dello_strumento_legge_il_saldo_e_conta_due_chiamate():
         }
     ]
     seconda = reg.richieste[1]["messages"]
-    assert seconda[-2]["role"] == "assistant"  # l'assistente che chiede, prima
+    assert seconda[-2]["role"] == "assistant"  # il turno che chiede lo strumento
     assert seconda[-2]["content"][-1] == {
         "type": "tool_use",
         "id": "t1",
@@ -311,7 +312,7 @@ async def test_il_giro_dello_strumento_legge_il_saldo_e_conta_due_chiamate():
     }
     assert seconda[-1]["role"] == "user" and seconda[-1]["content"][0]["tool_use_id"] == "t1"
     assert "48200.00" in seconda[-1]["content"][0]["content"]
-    assert r.json()["tokens_used"] == 120  # le due chiamate, non solo l'ultima
+    assert r.json()["tokens_used"] == 120  # somma di entrambe le chiamate
 
 
 async def test_il_conto_di_un_altro_portafoglio_lo_rifiuta_lo_strumento(
@@ -352,17 +353,17 @@ async def test_il_tetto_a_zero_rifiuta_prima_di_chiamare_il_modello(
         r = await c.post("/api/ai/chat", json={"session_id": "new", "message": "x"})
     assert r.status_code == 429 and r.json()["error"] == "RATE_LIMIT"
     assert int(r.headers["Retry-After"]) > 0
-    # e il tetto vale anche per la categorizzazione: ogni chiamata al modello spende
+    # il tetto vale anche per la categorizzazione, perché anche lì ogni chiamata ha un costo
     async with AsyncSessionLocal() as s:
         servizio = CategorizeService(
             strutturato_finto(gestore), "prompt", CostTracker(ChatRepository(s), Decimal("0"))
         )
         with pytest.raises(RateLimitError):
             await servizio.categorize(CategorizeRequest(description="Enel", amount=Decimal("8")))
-    assert reg.richieste == []  # il modello non è stato chiamato: niente speso
+    assert reg.richieste == []  # nessuna chiamata, quindi nessuna spesa
 
 
-# ---------------------------------------------------------------- lo structured output
+# Structured output
 async def test_instructor_su_claude_ritenta_e_ogni_tentativo_e_una_chiamata():
     reg = Registro()
     risposte = [
@@ -380,11 +381,11 @@ async def test_instructor_su_claude_ritenta_e_ogni_tentativo_e_una_chiamata():
         CategorizeRequest(description="Bonifico Enel Energia bolletta", amount=Decimal("85.50"))
     )
     assert isinstance(esito, CategorizeResponse) and esito.category == "UTILITIES"
-    assert len(reg.richieste) == 2  # la categoria inventata non è passata, e si è pagata
+    assert len(reg.richieste) == 2  # categoria inventata scartata, ma il tentativo si paga
     prima = reg.richieste[0]
     assert prima["tool_choice"] == {"type": "auto"}  # Opus 5.5 rifiuta lo strumento forzato
     assert "temperature" not in prima and prima["tools"][0]["name"] == "CategorizeResponse"
-    # e uno schema mai rispettato, dopo i tentativi, è un guasto del fornitore: il 502
+    # se lo schema non è mai rispettato, esauriti i tentativi è un guasto del fornitore (502)
     risposte[:] = [risposte[0]] * 3
     with pytest.raises(LLMProviderError):
         await servizio.categorize(

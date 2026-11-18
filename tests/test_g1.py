@@ -1,4 +1,4 @@
-# tests/test_g1.py — la configurazione che si rifiuta di partire, e la sonda che dice la verità
+# Giorno 1: validazione della configurazione all'avvio e sonda /health.
 import os
 import subprocess
 import sys
@@ -20,7 +20,7 @@ def avvia_senza(tmp_path: Path, *variabili: str) -> subprocess.CompletedProcess[
     ambiente["PYTHONPATH"] = str(RADICE)
     return subprocess.run(
         [sys.executable, "-c", "import src.config"],
-        cwd=tmp_path,  # il .env si cerca nella cartella corrente: qui non c'è
+        cwd=tmp_path,  # il .env è cercato nella cartella corrente, che qui non lo contiene
         env=ambiente,
         capture_output=True,
         text=True,
@@ -33,8 +33,8 @@ def test_senza_variabili_obbligatorie_il_processo_si_ferma_e_dice_quali(tmp_path
     assert r.returncode == 1
     assert "DATABASE_URL: manca" in r.stderr
     assert "JWT_SECRET: manca" in r.stderr
-    assert "secrets.token_urlsafe" in r.stderr  # dice anche cosa ci va
-    assert "Traceback" not in r.stderr  # e non lo dice in mezzo a un traceback
+    assert "secrets.token_urlsafe" in r.stderr  # suggerisce anche come generare il segreto
+    assert "Traceback" not in r.stderr  # il messaggio arriva senza traceback
 
 
 def test_un_valore_del_tipo_sbagliato_nomina_il_campo():
@@ -62,4 +62,4 @@ async def test_la_sonda_dice_quali_chiavi_ci_sono_senza_mostrarle(monkeypatch):
     assert r.status_code == 200
     assert r.json()["credentials"] == {"openai": True, "anthropic": False}
     assert r.json()["environment"] == settings.environment
-    assert "sk-prova" not in r.text and "9876" not in r.text  # né il valore né un suo pezzo
+    assert "sk-prova" not in r.text and "9876" not in r.text  # nemmeno un frammento della chiave

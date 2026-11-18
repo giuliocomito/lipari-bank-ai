@@ -1,14 +1,16 @@
-# scripts/prova_interruzione.py — il processo muore fra due scritture: cosa resta nel database?
-"""La prova dell'interruzione, sul database di sviluppo:
+"""Verifica che cosa resta nel database se il processo muore fra due scritture.
+
+Lavora sul database di sviluppo:
 
     uv run python -m scripts.prova_interruzione
 
-Per due richieste che scrivono due volte, la chat (messaggio dell'utente, poi risposta) e il
-movimento (movimento, poi saldo), lo script avvia il server vero in un processo figlio, con una
-pausa fra la prima e la seconda scrittura; manda la richiesta, aspetta di vedere la transazione
-aperta nel database, uccide il processo, e confronta il database prima e dopo.
+Le richieste che scrivono due volte sono la chat (messaggio dell'utente, poi risposta) e il
+movimento (movimento, poi saldo). Per ciascuna lo script avvia il server vero in un processo
+figlio, con una pausa fra la prima e la seconda scrittura; manda la richiesta, aspetta che la
+transazione risulti aperta nel database, uccide il processo e confronta il database prima e dopo.
 
-La pausa esiste solo nel processo figlio avviato da qui: il codice dell'applicazione non la ha.
+La pausa è inserita solo nel processo figlio avviato da questo script e non fa parte del codice
+dell'applicazione.
 """
 
 import asyncio
@@ -28,12 +30,12 @@ from scripts import seed_accounts
 from src.db.session import AsyncSessionLocal, engine
 
 PORTA = 8001
-PAUSA = 30  # secondi: il processo viene ucciso molto prima
+PAUSA = 30  # secondi; il processo viene ucciso molto prima che scada
 URL = f"http://127.0.0.1:{PORTA}"
 
 
 def server() -> None:
-    """Il processo figlio: l'applicazione vera, rallentata fra la prima e la seconda scrittura."""
+    """Esegue l'applicazione vera, rallentata fra la prima e la seconda scrittura."""
     import uvicorn
 
     from src.db.models import ChatMessage
@@ -72,7 +74,7 @@ async def _leggi(sql: str, **parametri: object) -> list[tuple[Any, ...]]:
         async with AsyncSessionLocal() as s:
             return [tuple(r) for r in (await s.execute(text(sql), parametri)).all()]
     finally:
-        await engine.dispose()  # ogni asyncio.run ha il suo loop: il pool non si porta dietro
+        await engine.dispose()  # ogni asyncio.run ha il suo loop, quindi il pool non va riusato
 
 
 def leggi(sql: str, **parametri: object) -> list[tuple[Any, ...]]:
@@ -131,7 +133,7 @@ def prova(nome: str, percorso: str, corpo: dict[str, str]) -> bool:
         in_volo = transazioni_aperte()[0]
         print(f"  a metà: transazione aperta nel database, ultima istruzione: {in_volo[1]!r}")
         print(f"  a metà, visto da fuori: {fotografia()} (la prima scrittura non si vede)")
-        figlio.kill()  # TerminateProcess su Windows, SIGKILL altrove: nessun codice di chiusura
+        figlio.kill()  # TerminateProcess su Windows, SIGKILL altrove, senza codice di chiusura
         figlio.wait()
         richiesta.join()
         print(f"  processo ucciso; il client: {esito[0]}")

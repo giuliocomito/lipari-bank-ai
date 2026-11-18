@@ -1,6 +1,6 @@
-# src/exceptions.py — gli errori di dominio, e la natura di ognuno
+# Errori di dominio, tradotti in risposte HTTP dagli handler di src/main.py.
 class AppError(Exception):
-    """Un errore previsto. Porta il suo codice di stato: lo decide chi conosce il guasto."""
+    """Errore previsto, con il codice di stato scelto da chi lo solleva."""
 
     def __init__(self, status_code: int, code: str, message: str) -> None:
         super().__init__(message)
@@ -36,7 +36,7 @@ class RateLimitError(AppError):
 class LLMProviderError(AppError):
     def __init__(self, provider: str, original: str) -> None:
         super().__init__(502, "LLM_PROVIDER_ERROR", f"Il fornitore {provider} non risponde")
-        self.original = original  # per il log, non per il client
+        self.original = original  # solo per il log: al client non arriva
 
 
 class InvalidFileError(AppError):
@@ -53,8 +53,8 @@ class FileTooLargeError(AppError):
 
 class AccountNotFoundError(NotFoundError):
     def __init__(self, account_id: str) -> None:
-        # «non trovato» anche quando il conto esiste ma è di un altro portafoglio:
-        # la risposta non deve dire a chi chiede quali conti esistono
+        # Anche il conto di un altro portafoglio risulta «non trovato», così la risposta
+        # non rivela quali conti esistono.
         super().__init__(f"Il conto {account_id} non è nel tuo portafoglio")
         self.code = "ACCOUNT_NOT_FOUND"
 

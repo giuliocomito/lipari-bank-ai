@@ -1,4 +1,4 @@
-# src/types/categorize.py — il contratto della categorizzazione
+# Contratto della categorizzazione.
 from decimal import Decimal
 from typing import Literal
 
@@ -8,7 +8,7 @@ Category = Literal["UTILITIES", "GROCERIES", "TRANSPORT", "RESTAURANTS", "ENTERT
 
 
 class CategorizeRequest(BaseModel):
-    # gli spazi ai bordi si tolgono prima dei vincoli: «   » non passa per una descrizione
+    # Gli spazi ai bordi si tolgono prima dei vincoli, così «   » non vale come descrizione.
     model_config = ConfigDict(str_strip_whitespace=True)
 
     description: str = Field(min_length=1, max_length=200, description="Il testo del movimento")

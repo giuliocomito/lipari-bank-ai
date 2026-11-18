@@ -1,4 +1,4 @@
-# tests/test_g2.py — il contratto di oggi, provato con richieste vere
+# Giorno 2: il contratto dell'API, verificato con richieste HTTP.
 import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
@@ -45,7 +45,7 @@ def test_glossario_e_404_nella_busta():
     assert client.post("/api/ai/glossary", json={"term": "IBAN"}).json()["source"]
     r = client.post("/api/ai/glossary", json={"term": "swift"})
     assert r.status_code == 404 and set(r.json()) == BUSTA and r.json()["error"] == "NOT_FOUND"
-    # anche gli errori del framework: una rotta che non c'è, un metodo sbagliato
+    # anche gli errori del framework (rotta inesistente, metodo sbagliato) usano la busta
     assert set(client.get("/non-esiste").json()) == BUSTA
     sbagliato = client.get("/api/ai/glossary")
     assert sbagliato.status_code == 405 and sbagliato.json()["error"] == "METHOD_NOT_ALLOWED"
@@ -55,7 +55,7 @@ def test_500_senza_dettagli_interni():
     r = client.get("/boom")
     assert r.status_code == 500 and set(r.json()) == BUSTA
     assert "segreta" not in r.text and "Traceback" not in r.text
-    assert r.headers["X-Request-Id"]  # il 500 è proprio la risposta da ritrovare nei log
+    assert r.headers["X-Request-Id"]  # serve soprattutto sul 500, per ritrovarlo nei log
 
 
 def test_429_con_retry_after():
@@ -77,13 +77,13 @@ def test_cors_solo_per_le_origini_ammesse(monkeypatch):
     )
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
     assert "access-control-allow-origin" not in no.headers
-    # e un elenco scritto senza JSON ferma l'avvio con un messaggio, non con un traceback
+    # un elenco non scritto in JSON ferma l'avvio con un messaggio leggibile
     monkeypatch.setenv("CORS_ORIGINS", "http://localhost:5173")
     with pytest.raises(SystemExit, match="CORS_ORIGINS: valore non leggibile"):
         carica()
 
 
-# ------------------------------------------------------------------ la categorizzazione
+# Categorizzazione
 def categorizza(descrizione: str, **altro: object):
     return client.post(
         "/api/ai/categorize", json={"description": descrizione, "amount": 87.4, **altro}
@@ -98,7 +98,7 @@ def test_una_bolletta_e_riconosciuta_e_dichiara_la_confidenza():
 
 
 def test_parole_intere_e_conflitto_dichiarato():
-    assert categorizza("Pagamento servizi vari").json()["category"] == "OTHER"  # «eni» no
+    assert categorizza("Autostrada Serenissima").json()["category"] == "OTHER"  # «eni» no
     conflitto = categorizza("Enel e Netflix, addebito unico").json()
     assert conflitto["confidence"] == 0.5 and "altra categoria" in conflitto["reasoning"]
 
@@ -109,7 +109,7 @@ def test_richiesta_malformata_dice_quale_campo_nella_busta():
     assert r.json()["error"] == "VALIDATION_ERROR"
     campi = {d.split(":")[0] for d in r.json()["details"]}
     assert campi == {"description", "amount", "currency"}
-    assert "euro" not in r.text  # il valore ricevuto non torna indietro
+    assert "euro" not in r.text  # il valore ricevuto non viene rimandato al chiamante
     non_json = client.post(
         "/api/ai/categorize", content=b"non json", headers={"Content-Type": "application/json"}
     )
@@ -125,7 +125,7 @@ def test_il_request_id_del_chiamante_torna_uguale_quello_strano_no():
     assert strano.headers["X-Request-Id"] != "<script>x</script>"
 
 
-# ------------------------------------------------------------------ l'importazione
+# Importazione dei movimenti
 def importa(contenuto: bytes, nome: str = "estratto.csv"):
     return client.post("/api/ai/movements/import", files={"file": (nome, contenuto, "text/csv")})
 
@@ -138,7 +138,7 @@ def test_ogni_riga_sbagliata_e_contata_col_suo_numero():
         b"2026-02-30,Conad,12.00,EUR\n"  # 4 data che non esiste
         b"01/09/2026,Coop,5.00,EUR\n"  # 5 data in un'altra forma
         b"2026-09-03,Trenitalia,39.90,euro\n"  # 6 valuta per esteso
-        b"\n"  # 7 vuota: non è una riga di dati
+        b"\n"  # 7 vuota, non conta come riga di dati
         b'2026-09-04,Pizzeria,"12,50",EUR\n'  # 8 virgola decimale
         b"2026-09-05,Netflix,-12.99,EUR\n"  # 9 importo negativo
         b"2026-09-06,Tamoil,50.00,EUR,extra\n"  # 10 un campo in più
@@ -146,8 +146,8 @@ def test_ogni_riga_sbagliata_e_contata_col_suo_numero():
         b"2026-09-08,Spotify,10.99,EUR\n"  # 12 buona
         b'2026-09-09,"Esselunga,54.10,EUR\n'  # 13 virgoletta aperta e mai chiusa
         b"2026-09-10," + b"x" * 140_000 + b",5.00,EUR\n"  # 14 un campo oltre il limite di csv
-        b"2026-09-11,Coop,5.00,EUR\n"  # 15 buona: le righe dopo non spariscono
-        b" 2026-09-12,Conad,8.00,EUR\n"  # 16 buona: lo spazio davanti alla data si toglie
+        b"2026-09-11,Coop,5.00,EUR\n"  # 15 buona, non va persa dopo le righe rotte
+        b" 2026-09-12,Conad,8.00,EUR\n"  # 16 buona, lo spazio prima della data viene tolto
     )
     r = importa(csv)
     assert r.status_code == 200

@@ -1,4 +1,4 @@
-# src/db/session.py — l'engine, la fabbrica delle sessioni, e la sessione per richiesta
+# Engine asincrono, fabbrica delle sessioni e sessione per ogni richiesta.
 from collections.abc import AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -13,7 +13,7 @@ class Base(DeclarativeBase):
 
 engine = create_async_engine(
     settings.database_url,  # postgresql+asyncpg://...
-    echo=settings.debug,  # l'SQL generato nel log, in sviluppo
+    echo=settings.debug,  # con debug attivo, l'SQL generato finisce nel log
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,

@@ -1,4 +1,4 @@
-# tests/test_pw_g3.py — il Project Work del Giorno 3: le proprietà dichiarate, e le loro prove
+# Project Work del Giorno 3: le proprietà dichiarate e i test che le verificano.
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -14,7 +14,7 @@ from scripts import seed_accounts
 from src.db.models import Movement
 from src.db.repos import AccountRepository, ChatRepository
 from src.db.session import AsyncSessionLocal, engine
-from tests.test_g3 import client, conta, periodo, tabelle_vuote  # noqa: F401 — la stessa fixture
+from tests.test_g3 import client, conta, periodo, tabelle_vuote  # noqa: F401 (fixture autouse)
 
 PRINCIPALE = seed_accounts.PRINCIPALE
 SALDO_INIZIALE = Decimal("48200.00")
@@ -30,9 +30,9 @@ def movimento(importo: str) -> dict[str, str]:
     return {"booking_date": str(date.today()), "description": "Prova", "amount": importo}
 
 
-# ------------------------------------------------------------------ l'estensione
+# Estensione
 async def test_movimento_e_saldo_insieme_o_per_niente(monkeypatch: pytest.MonkeyPatch):
-    """La proprietà dell'estensione: movimento e saldo si scrivono insieme, o nessuno dei due."""
+    """Movimento e saldo vengono scritti insieme, oppure nessuno dei due."""
     await seed_accounts.main()
     movimenti = await conta("movements")
 
@@ -43,7 +43,7 @@ async def test_movimento_e_saldo_insieme_o_per_niente(monkeypatch: pytest.Monkey
         "48150.00"
     )
 
-    # Ora il saldo fallisce dopo che il movimento è già stato scritto (flush) nella transazione
+    # Il saldo fallisce dopo il flush del movimento nella stessa transazione
     async def saldo_che_fallisce(self: AccountRepository, account_id: str, amount: Decimal) -> None:
         raise RuntimeError("il database cade fra il movimento e il saldo")
 
@@ -51,14 +51,14 @@ async def test_movimento_e_saldo_insieme_o_per_niente(monkeypatch: pytest.Monkey
     async with client(raise_app_exceptions=False) as c:
         ko = await c.post(f"/api/ai/accounts/{PRINCIPALE}/movements", json=movimento("-70.00"))
     assert ko.status_code == 500
-    # né il movimento da solo, né il saldo: tutto come prima della richiesta fallita
+    # movimenti e saldo restano quelli di prima della richiesta fallita
     assert await conta("movements") == movimenti + 1
     assert await saldo(PRINCIPALE) == Decimal("48150.00")
 
 
-# ------------------------------------------------------------------ la decisione
+# Decisione sul commit
 async def test_un_commit_che_fallisce_arriva_al_client(monkeypatch: pytest.MonkeyPatch):
-    """Il commit sta nel service: se fallisce, il client riceve un errore, non un 201."""
+    """Con il commit nel service, un commit fallito arriva al client come errore 500."""
     await seed_accounts.main()
     movimenti = await conta("movements")
 
@@ -73,7 +73,10 @@ async def test_un_commit_che_fallisce_arriva_al_client(monkeypatch: pytest.Monke
 
 
 async def test_l_alternativa_scartata_il_commit_dopo_lo_yield(monkeypatch: pytest.MonkeyPatch):
-    """Perché il commit non sta in get_db: dopo lo yield, per default, la risposta è già partita."""
+    """Mostra perché il commit non sta in get_db.
+
+    Per default il codice dopo lo yield viene eseguito quando la risposta è già partita.
+    """
 
     async def get_db_che_conferma() -> AsyncIterator[AsyncSession]:
         async with AsyncSessionLocal() as s:
@@ -102,18 +105,18 @@ async def test_l_alternativa_scartata_il_commit_dopo_lo_yield(monkeypatch: pytes
     async with AsyncClient(transport=trasporto, base_url="http://test") as c:
         default = await c.post("/default")
         function = await c.post("/function")
-    assert default.status_code == 200  # il client ha un id per una conversazione che non c'è
+    assert default.status_code == 200  # il client riceve l'id di una conversazione mai salvata
     assert function.status_code == 500  # con scope="function" il fallimento arriva al client
     assert await conta("chat_sessions") == 0
 
 
-# ------------------------------------------------------------------ la prova del centesimo
+# Prova del centesimo
 async def test_il_centesimo_regge_e_i_tre_decimali_non_passano():
     await seed_accounts.main()
     oggi = date.today()
-    # le mie commissioni, in aggiunta a quelle del seed: i valori che in virgola mobile non tornano
+    # commissioni aggiunte a quelle del seed, con valori che in virgola mobile non tornano
     commissioni = [Decimal("-0.10"), Decimal("-0.20"), Decimal("-0.30"), Decimal("-0.01")] * 15
-    # e quattro importi con tre decimali, scritti dall'ORM senza passare dall'API
+    # quattro importi con tre decimali, scritti con l'ORM perché l'API li rifiuterebbe
     tre_decimali = [Decimal("-12.345"), Decimal("-0.105"), Decimal("-7.999"), Decimal("-0.005")]
     async with AsyncSessionLocal() as s:
         s.add_all(
@@ -135,11 +138,11 @@ async def test_il_centesimo_regge_e_i_tre_decimali_non_passano():
     centesimo = Decimal("0.01")
     al_centesimo = [-a.quantize(centesimo, rounding=ROUND_HALF_UP) for a in tre_decimali]
     attesa = sum(uscite_seed + [-a for a in commissioni] + al_centesimo, Decimal("0"))
-    assert totale == attesa  # la somma fatta a mano, al centesimo
-    # i tre decimali li ha arrotondati il database mentre li scriveva: 12.345 è diventato 12.35
+    assert totale == attesa  # ricalcolata dal test, al centesimo
+    # il database ha arrotondato i tre decimali in scrittura (12.345 è diventato 12.35)
     assert totale != sum(uscite_seed + [-a for a in commissioni + tre_decimali], Decimal("0"))
 
-    # Dall'API, invece, un importo con tre decimali non arriva al database: si rifiuta
+    # L'API invece rifiuta un importo con tre decimali prima che arrivi al database
     async with client() as c:
         no = await c.post(f"/api/ai/accounts/{PRINCIPALE}/movements", json=movimento("-12.345"))
         zero = await c.post(f"/api/ai/accounts/{PRINCIPALE}/movements", json=movimento("0.00"))
@@ -147,9 +150,9 @@ async def test_il_centesimo_regge_e_i_tre_decimali_non_passano():
     assert zero.status_code == 422
 
 
-# ------------------------------------------------------------------ la conversazione lunga
+# Conversazione lunga
 async def query_di_una_chat(messaggi_precedenti: int) -> int:
-    """Quante istruzioni SQL fa una POST /chat su una conversazione che ne ha già N."""
+    """Conta le query SQL di una POST /chat su una conversazione che ha già N messaggi."""
     async with AsyncSessionLocal() as s:
         repo = ChatRepository(s)
         chat = await repo.create_session(user_id="mbianchi")  # l'operatore della chat dal G4
@@ -174,4 +177,4 @@ async def query_di_una_chat(messaggi_precedenti: int) -> int:
 
 async def test_la_chat_non_cresce_coi_messaggi():
     corta, lunga = await query_di_una_chat(2), await query_di_una_chat(200)
-    assert corta == lunga  # le stesse query con 2 messaggi e con 200: niente N+1
+    assert corta == lunga  # stesso numero di query con 2 e con 200 messaggi: niente N+1

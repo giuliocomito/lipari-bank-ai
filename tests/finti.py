@@ -1,5 +1,9 @@
-# tests/finti.py — i modelli finti: a livello HTTP, dove gli SDK lavorano davvero, e a eco
+# Modelli finti per i test. Le risposte sono simulate a livello HTTP, così gli SDK veri fanno
+# il loro lavoro; ModelloEco invece ripete la domanda.
+import hashlib
 import json
+import math
+import re
 from collections.abc import AsyncGenerator, Callable
 from decimal import Decimal
 from typing import Any
@@ -8,6 +12,8 @@ import httpx2
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
+from src.db.models import DIMENSIONI_EMBEDDING
+from src.llm.embedding_client import EmbeddingClient
 from src.llm.types import LLMResponse, Message, ToolSpec
 from src.services.categorize_rules import categorizza
 from src.types.categorize import CategorizeRequest, CategorizeResponse
@@ -17,7 +23,7 @@ CLAUDE = "claude-opus-5-5"
 
 
 class Registro:
-    """Le richieste arrivate al finto, con il corpo JSON già letto."""
+    """Registra corpo JSON e percorso di ogni richiesta ricevuta dal finto."""
 
     def __init__(self) -> None:
         self.richieste: list[dict[str, Any]] = []
@@ -48,7 +54,7 @@ def anthropic_finto(gestore: Gestore, max_retries: int = 2) -> AsyncAnthropic:
     )
 
 
-# ---------------------------------------------------------------- le risposte di OpenAI
+# Risposte di OpenAI
 def completion(
     testo: str | None,
     *,
@@ -107,7 +113,7 @@ def stream_openai(pezzi: list[str], *, prompt: int = 80, uscita: int = 12) -> ht
             "object": "chat.completion.chunk",
             "created": 0,
             "model": "gpt-4o-mini",
-            "choices": [],  # il pezzo del consumo: nessuna scelta
+            "choices": [],  # l'ultimo chunk porta solo il consumo
             "usage": {
                 "prompt_tokens": prompt,
                 "completion_tokens": uscita,
@@ -119,7 +125,7 @@ def stream_openai(pezzi: list[str], *, prompt: int = 80, uscita: int = 12) -> ht
     return httpx2.Response(200, text=corpo, headers={"content-type": "text/event-stream"})
 
 
-# ---------------------------------------------------------------- le risposte di Anthropic
+# Risposte di Anthropic
 def messaggio_anthropic(
     testo: str,
     *,
@@ -129,9 +135,9 @@ def messaggio_anthropic(
     pensiero: str | None = None,
     stop: str | None = None,
 ) -> httpx2.Response:
-    """Una risposta di Claude: il pensiero, il testo, e i blocchi tool_use (id, nome, argomenti)."""
+    """Risposta di Claude con pensiero, testo e blocchi tool_use (id, nome, argomenti)."""
     blocchi: list[dict[str, Any]] = []
-    if pensiero is not None:  # il ragionamento: c'è, si paga, e non va mostrato
+    if pensiero is not None:  # il ragionamento si paga ma non va mostrato
         blocchi.append({"type": "thinking", "thinking": pensiero, "signature": "firma"})
     if testo:
         blocchi.append({"type": "text", "text": testo})
@@ -205,9 +211,9 @@ def stream_anthropic(pezzi: list[str], *, entrata: int = 50, uscita: int = 10) -
     return httpx2.Response(200, text=corpo, headers={"content-type": "text/event-stream"})
 
 
-# ---------------------------------------------------------------- i finti della sessione
+# Finti che il conftest installa per tutta la sessione
 class ModelloEco:
-    """Il modello dei test che non gli chiedono niente di preciso: ripete la domanda, gratis."""
+    """Ripete la domanda a costo zero, per i test che non chiedono una risposta precisa."""
 
     model = "eco"
 
@@ -230,7 +236,67 @@ class ModelloEco:
 
 
 class CategorizzazioneARegole:
-    """La categorizzazione dei test: la regola a parole chiave, che non costa e non cambia."""
+    """Categorizza con la regola a parole chiave, gratuita e deterministica."""
 
     async def categorize(self, req: CategorizeRequest) -> CategorizeResponse:
         return categorizza(req)
+
+
+# Embedding finti, dal Giorno 5
+def vettore(testo: str) -> list[float]:
+    """Embedding finto ma coerente, in cui le parole in comune avvicinano i testi.
+
+    Ogni parola di almeno tre lettere incrementa una posizione del vettore scelta con un hash,
+    poi il vettore viene normalizzato. Testi con parole in comune hanno similarità del coseno
+    alta, testi senza parole in comune similarità zero; così la soglia e l'ordine del recupero
+    si verificano davvero, su Postgres con pgvector e l'indice HNSW.
+    """
+    v = [0.0] * DIMENSIONI_EMBEDDING
+    for parola in re.findall(r"\w{3,}", testo.lower()):
+        v[int(hashlib.md5(parola.encode()).hexdigest(), 16) % DIMENSIONI_EMBEDDING] += 1.0
+    norma = math.sqrt(sum(x * x for x in v)) or 1.0
+    return [x / norma for x in v]
+
+
+def gestore_embedding(r: httpx2.Request) -> httpx2.Response:
+    """Simula l'API degli embedding: un vettore per ogni testo, nell'ordine di arrivo."""
+    testi: list[str] = json.loads(r.content)["input"]
+    return httpx2.Response(
+        200,
+        json={
+            "object": "list",
+            "model": "bge-m3",
+            "data": [
+                {"object": "embedding", "index": i, "embedding": vettore(t)}
+                for i, t in enumerate(testi)
+            ],
+            "usage": {"prompt_tokens": 10, "total_tokens": 10},
+        },
+    )
+
+
+def embedder_finto() -> EmbeddingClient:
+    return EmbeddingClient(openai_finto(gestore_embedding), "bge-m3")
+
+
+class ModelloFisso:
+    """Risponde con il testo scelto dal test e registra i messaggi ricevuti."""
+
+    model = "finto"
+
+    def __init__(self, risposta: str) -> None:
+        self.risposta = risposta
+        self.ricevuti: list[list[Message]] = []
+
+    async def complete(
+        self, messages: list[Message], max_tokens: int = 500, tools: list[ToolSpec] | None = None
+    ) -> LLMResponse:
+        self.ricevuti.append(messages)
+        return LLMResponse(
+            content=self.risposta, tokens_used=100, cost_eur=Decimal("0.0001"), model="finto"
+        )
+
+    async def stream(
+        self, messages: list[Message], max_tokens: int = 500
+    ) -> AsyncGenerator[str | LLMResponse, None]:
+        yield await self.complete(messages, max_tokens)

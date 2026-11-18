@@ -1,10 +1,11 @@
-# src/services/categorize_rules.py — la categoria da parole chiave, finché non arriva il modello
+# Categorizzazione per parole chiave del Giorno 2. Dal Giorno 4 risponde il modello, e
+# queste regole restano solo nei test, al posto del modello finto.
 import re
 
 from src.types.categorize import CategorizeRequest, CategorizeResponse, Category
 
-# (categoria, sottocategoria, parole che la indicano). Parole intere, non pezzi di parola:
-# «eni» non deve scattare dentro «servizi», né «bar» dentro «barbiere».
+# (categoria, sottocategoria, parole chiave). Il confronto è su parole intere, perché «eni»
+# non deve riconoscersi dentro «Serenissima», né «bar» dentro «barbiere».
 REGOLE: list[tuple[Category, str, frozenset[str]]] = [
     ("UTILITIES", "ENERGY", frozenset({"enel", "edison", "a2a", "hera", "iren", "luce", "gas"})),
     ("UTILITIES", "TELECOM", frozenset({"tim", "vodafone", "windtre", "fastweb", "iliad"})),
@@ -27,7 +28,7 @@ def categorizza(req: CategorizeRequest) -> CategorizeResponse:
             reasoning="Nessuna parola chiave riconosciuta nella descrizione.",
         )
     categoria, sotto, indizi = trovate[0]
-    # Due categorie diverse sulla stessa riga: la regola sceglie la prima, e lo dichiara
+    # Se le parole indicano categorie diverse vince la prima regola, e la risposta lo segnala
     in_conflitto = len({cat for cat, _, _ in trovate}) > 1
     return CategorizeResponse(
         category=categoria,

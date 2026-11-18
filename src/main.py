@@ -1,4 +1,5 @@
-# src/main.py — la sonda, gli handler degli errori, i middleware, i router (dal Giorno 3 i conti)
+# Applicazione FastAPI: sonda di salute, gestione degli errori, middleware e router
+# (quello dei conti c'è dal Giorno 3).
 import logging
 import re
 import time
@@ -13,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from src.api import accounts, categorize, chat, glossary, movements
+from src.api import accounts, advice, categorize, chat, glossary, movements
 from src.config import settings
 from src.exceptions import AppError, RateLimitError
 from src.types.error import ErrorResponse
@@ -23,7 +24,7 @@ ID_VALIDO = re.compile(r"[A-Za-z0-9-]{8,64}")
 
 
 class Credentials(BaseModel):
-    """Quali chiavi ci sono. Un sì o un no: mai il valore, e mai un pezzo del valore."""
+    """Indica quali chiavi API sono configurate, senza esporne il valore né una sua parte."""
 
     openai: bool
     anthropic: bool
@@ -48,7 +49,7 @@ app = FastAPI(
 def _busta(
     req: Request, status: int, codice: str, messaggio: str, dettagli: list[str] | None = None
 ) -> dict[str, object]:
-    """La forma unica di ogni errore: la stessa per il 404, il 422, il 429 e il 500."""
+    """Costruisce il corpo comune a ogni risposta di errore: 404, 422, 429 e 500."""
     return ErrorResponse(
         timestamp=datetime.now(UTC),
         status=status,
@@ -80,9 +81,9 @@ CODICI_HTTP = {
 
 @app.exception_handler(StarletteHTTPException)
 async def handle_http(req: Request, exc: StarletteHTTPException) -> JSONResponse:
-    # Gli errori del framework: una rotta che non esiste, un metodo sbagliato, l'HTTPException
-    # di una dipendenza. Senza questo handler escono come {"detail": ...}, una forma in più.
-    # Gli header di chi l'ha sollevata restano: il 401 deve portare WWW-Authenticate
+    # Errori del framework (rotta inesistente, metodo non ammesso, HTTPException sollevata da
+    # una dipendenza), che altrimenti uscirebbero nel formato {"detail": ...}.
+    # Gli header originali si conservano perché il 401 deve portare WWW-Authenticate.
     return JSONResponse(
         status_code=exc.status_code,
         headers=exc.headers,
@@ -93,15 +94,15 @@ async def handle_http(req: Request, exc: StarletteHTTPException) -> JSONResponse
 
 
 def _campo(loc: tuple[int | str, ...]) -> str:
-    """Da ("body", "amount") ad "amount": il campo come lo ha scritto il chiamante."""
+    """Toglie dal loc di Pydantic la sorgente: ("body", "amount") diventa "amount"."""
     return ".".join(str(p) for p in loc[1:]) or str(loc[0])
 
 
 @app.exception_handler(RequestValidationError)
 async def handle_validation(req: Request, exc: RequestValidationError) -> JSONResponse:
-    # Un dettaglio per campo, «dove: cosa». Il valore ricevuto (e["input"]) non si rimanda
-    # indietro: può essere lungo un file intero, o contenere quello che non doveva uscire.
-    # Un corpo che non è JSON non ha un campo: il suo loc è ("body", 0), e si dice «corpo».
+    # Un dettaglio per campo, nella forma «campo: messaggio». Il valore ricevuto (e["input"])
+    # non si restituisce: può essere lungo quanto un file o contenere dati da non esporre.
+    # Un corpo che non è JSON ha loc ("body", 0) e viene indicato come «corpo».
     dettagli = [
         f"{'corpo' if e['type'] == 'json_invalid' else _campo(e['loc'])}: {e['msg']}"
         for e in exc.errors()
@@ -114,10 +115,11 @@ async def handle_validation(req: Request, exc: RequestValidationError) -> JSONRe
 
 @app.exception_handler(Exception)
 async def handle_unexpected(req: Request, exc: Exception) -> JSONResponse:
-    logger.exception("errore_non_gestito", extra={"path": req.url.path})  # il dettaglio nel log
+    # Il dettaglio va solo nel log; il client riceve un messaggio generico.
+    logger.exception("errore_non_gestito", extra={"path": req.url.path})
     return JSONResponse(
-        status_code=500,  # e fuori, niente
-        # il middleware non arriva a scriverlo, perché call_next ha sollevato: lo mette l'handler
+        status_code=500,
+        # Il middleware non arriva a scriverlo perché call_next ha sollevato l'eccezione.
         headers={"X-Request-Id": getattr(req.state, "request_id", "-")},
         content=_busta(req, 500, "INTERNAL_ERROR", "Errore inatteso"),
     )
@@ -127,11 +129,11 @@ async def handle_unexpected(req: Request, exc: Exception) -> JSONResponse:
 async def add_request_id(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    # Se il chiamante ne manda uno, lo stesso id attraversa i due sistemi; se non lo manda,
-    # o manda qualcosa che non ha la forma di un id, se ne genera uno nuovo.
+    # Riusare l'id del chiamante permette di seguire la richiesta in entrambi i sistemi.
+    # Se manca o non ha il formato di un id, se ne genera uno nuovo.
     ricevuto = request.headers.get("X-Request-Id", "")
     request_id = ricevuto if ID_VALIDO.fullmatch(ricevuto) else str(uuid.uuid4())
-    request.state.request_id = request_id  # lo legge l'handler del 500
+    request.state.request_id = request_id  # serve all'handler del 500
     inizio = time.perf_counter()
     response = await call_next(request)
     response.headers["X-Request-Id"] = request_id
@@ -139,7 +141,7 @@ async def add_request_id(
     return response
 
 
-app.add_middleware(  # registrato per ultimo: è il più esterno
+app.add_middleware(  # registrato per ultimo, quindi è il più esterno
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
@@ -168,3 +170,4 @@ app.include_router(glossary.router)
 app.include_router(categorize.router)
 app.include_router(movements.router)
 app.include_router(accounts.router)
+app.include_router(advice.router)

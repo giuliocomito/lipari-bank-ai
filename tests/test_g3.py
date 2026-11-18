@@ -1,4 +1,4 @@
-# tests/test_g3.py — la memoria: quello che deve accadere, e quello che non deve
+# Giorno 3: persistenza delle conversazioni e dei conti su Postgres.
 import operator
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
@@ -22,11 +22,12 @@ PRINCIPALE, _, CONTO_DI_ANNA = (c[0] for c in seed_accounts.CONTI)
 
 @pytest.fixture(autouse=True)
 async def tabelle_vuote() -> AsyncIterator[None]:
-    # Il pool si svuota prima e dopo ogni test: il TestClient dei test di ieri gira in un suo
-    # event loop, e le connessioni restano nel pool legate al loop che le ha aperte. Prima, per
-    # quelle che ha lasciato lui; dopo, per quelle di questo test, se il prossimo è suo.
+    # Il pool viene svuotato prima e dopo ogni test. Il TestClient dei test del Giorno 2 gira in
+    # un suo event loop, e le connessioni restano legate al loop che le ha aperte. Lo svuotamento
+    # iniziale chiude quelle lasciate da lui, quello finale quelle di questo test, nel caso il
+    # prossimo usi il TestClient.
     await engine.dispose()
-    # CASCADE: le tabelle che arriveranno nei giorni dopo puntano a queste
+    # CASCADE perché le tabelle aggiunte nei giorni successivi puntano a queste
     async with engine.begin() as c:
         await c.execute(
             text("TRUNCATE chat_messages, chat_sessions, movements, accounts, customers CASCADE")
@@ -45,7 +46,7 @@ def client(*, raise_app_exceptions: bool = True) -> AsyncClient:
     return AsyncClient(transport=trasporto, base_url="http://test")
 
 
-# ------------------------------------------------------------------ la conversazione
+# Conversazione
 async def test_la_conversazione_sopravvive_al_riavvio():
     async with client() as c:
         r1 = await c.post("/api/ai/chat", json={"session_id": "new", "message": "Hello!"})
@@ -53,11 +54,11 @@ async def test_la_conversazione_sopravvive_al_riavvio():
         r2 = await c.post("/api/ai/chat", json={"session_id": sid, "message": "Second message"})
     assert r1.status_code == r2.status_code == 200 and r2.json()["session_id"] == sid
 
-    await engine.dispose()  # il «riavvio»: nessuna connessione del processo di prima
+    await engine.dispose()  # simula il riavvio chiudendo tutte le connessioni
     nuovo = create_async_engine(engine.url.render_as_string(hide_password=False))
     async with nuovo.connect() as conn:
         ruoli = await conn.scalars(
-            text("SELECT role FROM chat_messages WHERE session_id = :s ORDER BY created_at"),
+            text("SELECT role FROM chat_messages WHERE session_id = :s ORDER BY seq"),
             {"s": sid},
         )
         assert list(ruoli) == ["user", "assistant", "user", "assistant"]
@@ -111,12 +112,12 @@ async def test_venti_messaggi_due_query():
             assert trovata is not None and len(trovata.messages) == 20
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", registra)
-    assert len(query) == 2  # la sessione, e i messaggi con un IN: non una query per messaggio
+    assert len(query) == 2  # una per la sessione e una sola per i messaggi, con IN
 
 
-# ------------------------------------------------------------------ lo schema e i dati
+# Schema e dati
 def test_la_migration_riapplicata_non_rompe_niente():
-    command.upgrade(Config("alembic.ini"), "head")  # già a head: non deve fare niente
+    command.upgrade(Config("alembic.ini"), "head")  # già a head, non deve cambiare nulla
 
 
 async def test_il_seed_si_rilancia_senza_duplicare(capsys: pytest.CaptureFixture[str]):
@@ -149,9 +150,9 @@ async def test_il_totale_speso_torna_al_centesimo():
     async with client() as c:
         r = await c.get(f"/api/ai/accounts/{PRINCIPALE}/spending", params=periodo())
     uscite = [-a for i, _, _, a in seed_accounts.MOVIMENTI if i == PRINCIPALE and a < 0]
-    assert Decimal(r.json()["total"]) == sum(uscite, Decimal("0"))  # la somma fatta a mano
-    # gli stessi importi accumulati in virgola mobile, uno dopo l'altro: 20402.220000000016.
-    # (Non con sum(): dal Python 3.12 compensa l'errore, e un ciclo che accumula no.)
+    assert Decimal(r.json()["total"]) == sum(uscite, Decimal("0"))  # ricalcolata dal test
+    # Gli stessi importi sommati uno alla volta in virgola mobile danno 20402.220000000016.
+    # Si usa reduce perché da Python 3.12 sum() compensa l'errore di arrotondamento.
     assert reduce(operator.add, (float(u) for u in uscite)) != 20402.22
 
 
