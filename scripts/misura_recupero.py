@@ -77,7 +77,7 @@ async def main() -> None:
     )
     passano = sum(s >= SOGLIA_PREDEFINITA for s in simili_estranee)
     print(
-        f"Con la soglia del corso ({SOGLIA_PREDEFINITA}): {passano} domande senza risposta su "
+        f"Con la soglia attuale ({SOGLIA_PREDEFINITA}): {passano} domande senza risposta su "
         f"{len(simili_estranee)} arrivano comunque al modello"
     )
 

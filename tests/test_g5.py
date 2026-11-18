@@ -15,6 +15,7 @@ from src.lib.chunking import chunk_text
 from src.llm.embedding_client import EmbeddingClient
 from src.llm.factory import get_embedder, get_llm_provider
 from src.main import app
+from src.services import retrieval_service
 from src.services.ingest_service import IngestService
 from src.services.rag_service import RIFIUTO, RAGService, citazioni
 from src.services.retrieval_service import RetrievalResult, RetrievalService
@@ -30,6 +31,13 @@ async def indice_vuoto() -> AsyncIterator[None]:
     async with engine.begin() as c:
         await c.execute(text("TRUNCATE document_chunks"))
     yield
+
+
+@pytest.fixture(autouse=True)
+def soglia_dei_vettori_finti(monkeypatch: pytest.MonkeyPatch) -> None:
+    # I vettori finti contano le parole in comune e hanno una scala diversa da bge-m3, su cui è
+    # tarata la soglia vera; qui resta quella del corso. La soglia vera la prova test_pw_g5.
+    monkeypatch.setattr(retrieval_service, "SOGLIA_PREDEFINITA", 0.35)
 
 
 @pytest.fixture(autouse=True)
