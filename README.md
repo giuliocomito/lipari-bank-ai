@@ -13,7 +13,7 @@ tenendo il conto di quanto costa ogni risposta.
 | 2 | contratto dell'API e importazione dei CSV | `g2` | [g2.md](docs/giorni/g2.md) | [G2.md](docs/ai-review/G2.md) |
 | 3 | database | `g3` | [g3.md](docs/giorni/g3.md) | [G3.md](docs/ai-review/G3.md) |
 | 4 | modello linguistico, costi e streaming | `g4` | [g4.md](docs/giorni/g4.md) | [G4.md](docs/ai-review/G4.md) |
-| 5 | ricerca nei documenti con le fonti (RAG), in corso sul branch `giorno-5` | | | |
+| 5 | ricerca nei documenti con le fonti (RAG) e soglia tarata | | [g5.md](docs/giorni/g5.md) | [G5.md](docs/ai-review/G5.md) |
 
 L'etichetta conserva il codice com'era alla consegna: `git checkout g2` riporta il progetto
 alla fine del Giorno 2. Nei diari si trovano le scelte di ogni giornata, le alternative
@@ -25,6 +25,16 @@ Non è fra le quattro strade proposte dal corso. Sotto una certa somiglianza il 
 che non sa, ma la soglia del corso, 0,35, lascia arrivare al modello tutte le domande che nei
 documenti non hanno risposta. La sceglierò sui dati e la misurerò su domande tenute da parte,
 contando quante domande senza risposta vengono fermate e quante con risposta vanno perse.
+
+```bash
+uv run python -m scripts.misura_soglia   # ogni soglia fra 0,35 e 0,65, sui due gruppi di domande
+uv run python -m scripts.prove_g5        # le quattro prove della consegna
+```
+
+Ho scelto 0,50, la soglia più alta che non perde risposte giuste. Ho scartato 0,55, che ferma
+qualche domanda estranea in più ma ne perde tre giuste. Sulle 12 domande di verifica le estranee
+fermate passano da 0 su 6 a 3 su 6, e le giuste restano 6 su 6. Dettagli nel
+[diario del Giorno 5](docs/giorni/g5.md).
 
 ## Avvio
 
