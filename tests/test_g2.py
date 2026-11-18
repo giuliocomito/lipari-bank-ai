@@ -98,7 +98,7 @@ def test_una_bolletta_e_riconosciuta_e_dichiara_la_confidenza():
 
 
 def test_parole_intere_e_conflitto_dichiarato():
-    assert categorizza("Pagamento servizi vari").json()["category"] == "OTHER"  # «eni» no
+    assert categorizza("Autostrada Serenissima").json()["category"] == "OTHER"  # «eni» no
     conflitto = categorizza("Enel e Netflix, addebito unico").json()
     assert conflitto["confidence"] == 0.5 and "altra categoria" in conflitto["reasoning"]
 
