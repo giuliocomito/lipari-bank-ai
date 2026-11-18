@@ -199,7 +199,7 @@ async def prova_stream_interrotto() -> None:
             await s.scalars(
                 select(ChatMessage)
                 .where(ChatMessage.role == "assistant")
-                .order_by(ChatMessage.created_at.desc())
+                .order_by(ChatMessage.seq.desc())
             )
         ).first()
     ok = salvata is not None and salvata.interrupted and salvata.content == "".join(letti)

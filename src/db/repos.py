@@ -36,7 +36,7 @@ class ChatRepository:
         stmt = (
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
-            .order_by(ChatMessage.created_at.desc())
+            .order_by(ChatMessage.seq.desc())
             .limit(limite)
         )
         recenti = list((await self.session.scalars(stmt)).all())
@@ -69,7 +69,7 @@ class ChatRepository:
         stmt = (
             select(ChatMessage)
             .where(ChatMessage.session_id == session_id)
-            .order_by(ChatMessage.created_at)
+            .order_by(ChatMessage.seq)
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -82,7 +82,7 @@ class ChatRepository:
             select(ChatMessage, ChatSession.started_at)
             .join(ChatSession, ChatSession.id == ChatMessage.session_id)
             .where(ChatSession.user_id == user_id, ChatMessage.created_at >= da)
-            .order_by(ChatMessage.created_at.desc())
+            .order_by(ChatMessage.seq.desc())
         )
         return list((await self.session.execute(stmt)).all())
 

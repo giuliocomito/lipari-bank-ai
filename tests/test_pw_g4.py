@@ -2,6 +2,7 @@
 import contextlib
 import json
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import anyio
@@ -267,3 +268,21 @@ async def test_una_conversazione_lunga_legge_dal_database_solo_la_finestra():
     assert modello.ricevuti[-2].content == "m499"
     # prima della correzione dal database uscivano tutte le righe (502)
     assert righe_lette < 50
+
+
+async def test_messaggi_salvati_nello_stesso_istante_restano_in_ordine():
+    """A parità di created_at la conversazione torna nell'ordine in cui è stata scritta."""
+    istante = datetime.now(UTC)
+    async with AsyncSessionLocal() as s:
+        chat = await ChatRepository(s).create_session(user_id="mbianchi")
+        for i in range(30):
+            s.add(ChatMessage(session_id=chat.id, role="user", content=f"m{i}", created_at=istante))
+            await s.flush()
+        await s.commit()
+
+    async with AsyncSessionLocal() as s:
+        repo = ChatRepository(s)
+        finestra = [m.content for m in await repo.last_messages(chat.id, 20)]
+        tutti = [m.content for m in await repo.list_messages(chat.id)]
+    assert finestra == [f"m{i}" for i in range(10, 30)]
+    assert tutti == [f"m{i}" for i in range(30)]

@@ -58,7 +58,7 @@ async def test_la_conversazione_sopravvive_al_riavvio():
     nuovo = create_async_engine(engine.url.render_as_string(hide_password=False))
     async with nuovo.connect() as conn:
         ruoli = await conn.scalars(
-            text("SELECT role FROM chat_messages WHERE session_id = :s ORDER BY created_at"),
+            text("SELECT role FROM chat_messages WHERE session_id = :s ORDER BY seq"),
             {"s": sid},
         )
         assert list(ruoli) == ["user", "assistant", "user", "assistant"]

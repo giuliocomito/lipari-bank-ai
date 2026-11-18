@@ -6,10 +6,12 @@ from decimal import Decimal
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -43,12 +45,13 @@ class ChatSession(Base):
     messages: Mapped[list["ChatMessage"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
-        order_by="ChatMessage.created_at",
+        order_by="ChatMessage.seq",
     )
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
+    __table_args__ = (Index("ix_chat_messages_session_seq", "session_id", "seq"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_uuid)
     session_id: Mapped[str] = mapped_column(ForeignKey("chat_sessions.id"), index=True)
@@ -65,6 +68,9 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )
+    # L'ordine della conversazione. created_at non basta: su Windows due messaggi salvati di
+    # seguito possono ricevere lo stesso istante, e a parità d'istante l'ordine è casuale.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True))
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")
 
