@@ -19,6 +19,13 @@ L'etichetta conserva il codice com'era alla consegna: `git checkout g2` riporta 
 alla fine del Giorno 2. Nei diari si trovano le scelte di ogni giornata, le alternative
 scartate e le misure che le giustificano.
 
+## Estensione del Giorno 5: la soglia
+
+Non è fra le quattro strade proposte dal corso. Sotto una certa somiglianza il sistema risponde
+che non sa, ma la soglia del corso, 0,35, lascia arrivare al modello tutte le domande che nei
+documenti non hanno risposta. La sceglierò sui dati e la misurerò su domande tenute da parte,
+contando quante domande senza risposta vengono fermate e quante con risposta vanno perse.
+
 ## Avvio
 
 Servono Git, Docker con Compose e uv 0.5 o successivo, che si procura da sé Python 3.12
