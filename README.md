@@ -50,7 +50,7 @@ da un altro PostgreSQL, l'errore sembra di credenziali
 Ogni variabile è spiegata in [`.env.example`](.env.example). Senza `DATABASE_URL` e
 `JWT_SECRET` (almeno 32 caratteri) l'applicazione non parte e dice quale variabile manca.
 `ANTHROPIC_API_KEY` serve solo per interrogare il modello vero: senza, la chat risponde 503,
-mentre test e prove usano modelli finti. Per la ricerca nei documenti serve
+mentre test e prove usano modelli finti. Dal Giorno 5 la ricerca nei documenti richiede
 [Ollama](https://ollama.com) con il modello degli embedding (`ollama pull bge-m3`).
 
 ## Controlli
