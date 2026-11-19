@@ -38,9 +38,12 @@ def server() -> None:
     """Esegue l'applicazione vera, rallentata fra la prima e la seconda scrittura."""
     import uvicorn
 
+    from src.auth.deps import UserContext, get_current_user
     from src.db.models import ChatMessage
     from src.db.repos import AccountRepository, ChatRepository
+    from src.llm.factory import get_llm_provider
     from src.main import app
+    from tests.finti import ModelloEco
 
     add_message = ChatRepository.add_message
     apply = AccountRepository.apply
@@ -53,10 +56,13 @@ def server() -> None:
         tokens: int = 0,
         cost_eur: Decimal = Decimal("0"),
         model_used: str | None = None,
+        interrupted: bool = False,
     ) -> ChatMessage:
         if role == "assistant":  # il messaggio dell'utente è già scritto (flush), la risposta no
             await asyncio.sleep(PAUSA)
-        return await add_message(self, session_id, role, content, tokens, cost_eur, model_used)
+        return await add_message(
+            self, session_id, role, content, tokens, cost_eur, model_used, interrupted
+        )
 
     async def apply_lento(
         self: AccountRepository, account_id: str, amount: Decimal
@@ -66,6 +72,12 @@ def server() -> None:
 
     setattr(ChatRepository, "add_message", add_message_lento)  # noqa: B010
     setattr(AccountRepository, "apply", apply_lento)  # noqa: B010
+    # La prova riguarda le transazioni, non l'accesso né il modello: chi chiede è Marco, senza
+    # token, e risponde il modello finto che ripete la domanda.
+    app.dependency_overrides[get_current_user] = lambda: UserContext(
+        username="mbianchi", role="operator"
+    )
+    app.dependency_overrides[get_llm_provider] = ModelloEco
     uvicorn.run(app, port=PORTA, log_level="warning")
 
 
