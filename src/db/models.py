@@ -124,3 +124,23 @@ class DocumentChunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(DIMENSIONI_EMBEDDING))
     # SQLAlchemy riserva il nome «metadata» alla classe base.
     chunk_metadata: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    # Dal Giorno 6: chi può vedere il passaggio. È nel WHERE di ogni ricerca, da qui l'indice.
+    # Con server_default la migrazione assegna «public» ai passaggi già presenti.
+    visibility: Mapped[str] = mapped_column(
+        String(32), default="public", server_default="public", index=True
+    )
+
+
+class AppUser(Base):
+    """Chi usa il sistema, con il ruolo che decide quali documenti vede."""
+
+    __tablename__ = "app_users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_uuid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(128))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(32), default="operator")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

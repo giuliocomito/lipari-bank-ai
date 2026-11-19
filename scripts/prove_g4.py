@@ -26,6 +26,7 @@ from sqlalchemy import select, text  # noqa: E402
 
 from scripts import seed_accounts  # noqa: E402
 from scripts.misura_stream_interrotto import PEZZI, ModelloAPezzi  # noqa: E402
+from src.auth.deps import UserContext, get_current_user  # noqa: E402
 from src.config import settings  # noqa: E402
 from src.db.models import ChatMessage  # noqa: E402
 from src.db.session import AsyncSessionLocal, engine  # noqa: E402
@@ -219,6 +220,10 @@ async def main() -> None:
             text("TRUNCATE chat_messages, chat_sessions, movements, accounts, customers CASCADE")
         )
     await seed_accounts.main()
+    # Le prove del Giorno 4 precedono l'autenticazione: chi chiede è Marco, senza token.
+    app.dependency_overrides[get_current_user] = lambda: UserContext(
+        username="mbianchi", role="operator"
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://prove") as c:
         await prova_contratto(c)
         await prova_conto_di_anna(c)

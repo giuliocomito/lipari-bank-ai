@@ -26,7 +26,11 @@ class IngestService:
         self.embedder = embedder
 
     async def ingest(
-        self, document_id: str, text: str, metadata: dict[str, str] | None = None
+        self,
+        document_id: str,
+        text: str,
+        metadata: dict[str, str] | None = None,
+        visibility: str = "public",
     ) -> int:
         """Indicizza il testo e restituisce il numero di passaggi scritti.
 
@@ -53,6 +57,7 @@ class IngestService:
                         content=testo,
                         embedding=vettore,
                         chunk_metadata=metadata or {},
+                        visibility=visibility,  # ogni passaggio eredita il livello del documento
                     )
                     for i, (testo, vettore) in enumerate(zip(lotto, vettori, strict=True))
                 ]

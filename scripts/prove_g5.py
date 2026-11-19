@@ -19,9 +19,11 @@ os.environ.setdefault("JWT_SECRET", "segreto-delle-prove-lungo-almeno-trentadue-
 from sqlalchemy import func, select, text  # noqa: E402
 
 from scripts.misura_recupero import indicizza  # noqa: E402
+from src.auth.deps import UserContext  # noqa: E402
 from src.db.models import DocumentChunk  # noqa: E402
 from src.db.session import AsyncSessionLocal, engine  # noqa: E402
 from src.llm.factory import get_embedder  # noqa: E402
+from src.llm.rewriter import QueryRewriter  # noqa: E402
 from src.services.ingest_service import IngestService  # noqa: E402
 from src.services.rag_service import RIFIUTO, RAGService  # noqa: E402
 from src.services.retrieval_service import (  # noqa: E402
@@ -29,7 +31,6 @@ from src.services.retrieval_service import (  # noqa: E402
     RetrievalResult,
     RetrievalService,
 )
-from src.types.advice import AdviceRequest  # noqa: E402
 from tests.finti import ModelloFisso  # noqa: E402
 
 COMMISSIONI = Path("data/docs/commissioni_bonifico.md")
@@ -74,8 +75,9 @@ async def main() -> None:
     domanda = "Come si apre un deposito titoli?"
     modello = ModelloFisso("non dovrebbe servire")
     async with AsyncSessionLocal() as s:
-        servizio = RAGService(RetrievalService(s), get_embedder(), modello, "PROMPT")
-        risposta = await servizio.advise(AdviceRequest(question=domanda))
+        spento = QueryRewriter(modello, "", enabled=False)
+        servizio = RAGService(RetrievalService(s), get_embedder(), modello, spento, "PROMPT")
+        risposta = await servizio.advise(domanda, UserContext(username="mbianchi", role="operator"))
     esito(
         "1. una domanda estranea riceve il rifiuto, senza citazioni",
         risposta.answer == RIFIUTO and not risposta.citations and not modello.ricevuti,

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.deps import UserContext, get_current_user
 from src.config import settings
 from src.db.session import get_db
 from src.exceptions import LLMProviderError
@@ -19,7 +20,6 @@ from src.types.chat import ChatRequest, ChatResponse
 router = APIRouter(prefix="/api/ai", tags=["Chat"])
 
 SYSTEM_PROMPT = load_prompt("chat_system_v1")
-OPERATORE = "mbianchi"  # l'operatore del seed, provvisorio fino all'autenticazione (G6)
 
 
 def get_chat_service(
@@ -38,16 +38,21 @@ def get_chat_service(
     description='Conversazione a più turni: con session_id "new" se ne apre una nuova.',
 )
 async def chat(
-    req: ChatRequest, service: Annotated[ChatService, Depends(get_chat_service)]
+    req: ChatRequest,
+    user: Annotated[UserContext, Depends(get_current_user)],
+    service: Annotated[ChatService, Depends(get_chat_service)],
 ) -> ChatResponse:
-    return await service.chat(req, user_id=OPERATORE)
+    return await service.chat(req, user_id=user.username)
 
 
 @router.post("/chat/stream", summary="La stessa chat, con la risposta che arriva mentre si forma")
 async def chat_stream(
-    req: ChatRequest, service: Annotated[ChatService, Depends(get_chat_service)]
+    req: ChatRequest,
+    user: Annotated[UserContext, Depends(get_current_user)],
+    service: Annotated[ChatService, Depends(get_chat_service)],
 ) -> StreamingResponse:
-    pezzi = await service.chat_stream(req, user_id=OPERATORE)  # un 404 esce qui, prima dello stream
+    # un 404 esce qui, prima che lo stream cominci
+    pezzi = await service.chat_stream(req, user_id=user.username)
 
     async def eventi() -> AsyncGenerator[str, None]:
         # Se il client chiude la pagina, la parte già generata la salva il servizio,

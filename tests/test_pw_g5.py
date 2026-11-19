@@ -7,8 +7,7 @@ from src.db.models import DIMENSIONI_EMBEDDING, DocumentChunk
 from src.db.session import AsyncSessionLocal, engine
 from src.services.rag_service import RIFIUTO, RAGService
 from src.services.retrieval_service import RetrievalService
-from src.types.advice import AdviceRequest
-from tests.finti import ModelloFisso
+from tests.finti import MARCO, ModelloFisso, riscrittore_spento
 
 
 def a_somiglianza(coseno: float) -> list[float]:
@@ -32,8 +31,10 @@ async def chiedi(coseno: float) -> tuple[str, int]:
     modello = ModelloFisso("Il bonifico istantaneo costa €1.00 [fonte-1].")
     async with AsyncSessionLocal() as s:
         embedder = EmbedderFisso(a_somiglianza(coseno))
-        servizio = RAGService(RetrievalService(s), embedder, modello, "PROMPT")
-        esito = await servizio.advise(AdviceRequest(question="una domanda qualsiasi"))
+        servizio = RAGService(
+            RetrievalService(s), embedder, modello, riscrittore_spento(), "PROMPT"
+        )
+        esito = await servizio.advise("una domanda qualsiasi", MARCO)
     return esito.answer, len(modello.ricevuti)
 
 

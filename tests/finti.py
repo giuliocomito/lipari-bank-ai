@@ -12,8 +12,10 @@ import httpx2
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
+from src.auth.deps import UserContext
 from src.db.models import DIMENSIONI_EMBEDDING
 from src.llm.embedding_client import EmbeddingClient
+from src.llm.rewriter import QueryRewriter
 from src.llm.types import LLMResponse, Message, ToolSpec
 from src.services.categorize_rules import categorizza
 from src.types.categorize import CategorizeRequest, CategorizeResponse
@@ -300,3 +302,12 @@ class ModelloFisso:
         self, messages: list[Message], max_tokens: int = 500
     ) -> AsyncGenerator[str | LLMResponse, None]:
         yield await self.complete(messages, max_tokens)
+
+
+MARCO = UserContext(username="mbianchi", role="operator")  # chi chiede nei test senza token
+GIULIA = UserContext(username="grossi", role="compliance_lead")
+
+
+def riscrittore_spento() -> QueryRewriter:
+    """Il riscrittore dei test che non riguardano la riscrittura: la domanda passa invariata."""
+    return QueryRewriter(ModelloEco(), "", enabled=False)
