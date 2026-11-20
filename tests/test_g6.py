@@ -136,16 +136,20 @@ async def test_token_alterato_scaduto_e_alg_none_sono_respinti():
         algorithm=ALGORITHM,
     )
     senza_firma = jwt.encode({"sub": "mbianchi", "role": "admin"}, key="", algorithm="none")
+    senza_sub = jwt.encode({"role": "operator"}, settings.jwt_secret, algorithm=ALGORITHM)
     corpo = {"session_id": "new", "message": "x"}
     async with client() as c:
         esiti = {}
-        for nome, tok in (("alterato", alterato), ("scaduto", scaduto), ("none", senza_firma)):
+        casi = (("alterato", alterato), ("scaduto", scaduto), ("none", senza_firma))
+        for nome, tok in (*casi, ("senza sub", senza_sub)):
             r = await c.post("/api/ai/chat", json=corpo, headers={"Authorization": f"Bearer {tok}"})
-            esiti[nome] = (r.status_code, r.json().get("message"))
+            sfida = r.headers.get("www-authenticate")
+            esiti[nome] = (r.status_code, r.json().get("message"), sfida)
         senza = await c.post("/api/ai/chat", json=corpo)
-    assert esiti["alterato"] == (401, "Token non valido")
-    assert esiti["scaduto"] == (401, "Token scaduto")
-    assert esiti["none"] == (401, "Token non valido")
+    assert esiti["alterato"] == (401, "Token non valido", "Bearer")
+    assert esiti["scaduto"] == (401, "Token scaduto", "Bearer")
+    assert esiti["none"] == (401, "Token non valido", "Bearer")
+    assert esiti["senza sub"] == (401, "Token senza subject", "Bearer")  # revisione G6, rilievo 4
     assert senza.status_code == 401 and senza.headers["www-authenticate"] == "Bearer"
 
 

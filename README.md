@@ -14,7 +14,7 @@ tenendo il conto di quanto costa ogni risposta.
 | 3 | database | `g3` | [g3.md](docs/giorni/g3.md) | [G3.md](docs/ai-review/G3.md) |
 | 4 | modello linguistico, costi e streaming | `g4` | [g4.md](docs/giorni/g4.md) | [G4.md](docs/ai-review/G4.md) |
 | 5 | ricerca nei documenti con le fonti (RAG) e soglia tarata | `g5` | [g5.md](docs/giorni/g5.md) | [G5.md](docs/ai-review/G5.md) |
-| 6 | login con JWT, documenti filtrati per ruolo, riscrittura della domanda; in corso sul branch `giorno-6` | | | |
+| 6 | login con JWT, documenti filtrati per ruolo e per filiale, riscrittura della domanda | | [g6.md](docs/giorni/g6.md) | [G6.md](docs/ai-review/G6.md) |
 
 L'etichetta conserva il codice com'era alla consegna: `git checkout g2` riporta il progetto
 alla fine del Giorno 2. Nei diari si trovano le scelte di ogni giornata, le alternative
@@ -36,6 +36,21 @@ Ho scelto 0,50, la soglia più alta che non perde risposte giuste. Ho scartato 0
 qualche domanda estranea in più ma ne perde tre giuste. Sulle 12 domande di verifica le estranee
 fermate passano da 0 su 6 a 3 su 6, e le giuste restano 6 su 6. Dettagli nel
 [diario del Giorno 5](docs/giorni/g5.md).
+
+## Estensione del Giorno 6: i permessi per filiale
+
+I documenti interni si filtrano anche per filiale: un documento con filiali lo vede chi lavora in
+una di esse o chi sta in sede centrale, uno senza filiali vale per tutta la banca.
+
+```bash
+uv run python -m scripts.misura_filiale  # 20.000 passaggi sintetici, prima e dopo il filtro
+uv run python -m scripts.prove_g6        # le prove della consegna, con i token veri
+```
+
+Ho scelto di leggere la filiale dal database dentro la query, e ho scartato di metterla nel
+token, che si legge in chiaro e non si aggiorna prima della scadenza. Il filtro costa 0,3 ms, ma
+nel caso peggiore lasciava a vuoto 21 domande su 50 con richiamo del 58%: con la ricerca
+iterativa di pgvector sono 0 su 50 e il 94%. Dettagli nel [diario del Giorno 6](docs/giorni/g6.md).
 
 ## Avvio
 
