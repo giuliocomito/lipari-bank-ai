@@ -94,14 +94,22 @@ class RetrievalService:
         restituisce nemmeno i passaggi che l'utente non può vedere. La filiale si legge dal
         database nella stessa query, non dal token. Senza username, dei documenti interni
         restano solo quelli che valgono per tutta la banca.
+
+        L'indice HNSW applica il filtro ai candidati che ha già trovato: se quelli vicini
+        appartengono ad altre filiali, la ricerca resterebbe a vuoto pur esistendo passaggi
+        visibili (21 domande su 50 nel caso peggiore, con scripts.misura_filiale). Con
+        iterative_scan l'indice continua a cercare finché ne trova abbastanza; la modalità
+        relaxed_order può invertirne l'ordine, quindi si riordinano per somiglianza.
         """
-        return await self._esegui(
+        await self.session.execute(sql("SET LOCAL hnsw.iterative_scan = relaxed_order"))
+        trovati = await self._esegui(
             self.SQL_PER_RUOLO,
             query_vec,
             top_k,
             soglia,
             {"livelli": visible_to(role), "utente": username},
         )
+        return sorted(trovati, key=lambda t: t.similarity, reverse=True)
 
     async def _esegui(
         self,
