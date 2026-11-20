@@ -13,7 +13,8 @@ tenendo il conto di quanto costa ogni risposta.
 | 2 | contratto dell'API e importazione dei CSV | `g2` | [g2.md](docs/giorni/g2.md) | [G2.md](docs/ai-review/G2.md) |
 | 3 | database | `g3` | [g3.md](docs/giorni/g3.md) | [G3.md](docs/ai-review/G3.md) |
 | 4 | modello linguistico, costi e streaming | `g4` | [g4.md](docs/giorni/g4.md) | [G4.md](docs/ai-review/G4.md) |
-| 5 | ricerca nei documenti con le fonti (RAG) e soglia tarata | | [g5.md](docs/giorni/g5.md) | [G5.md](docs/ai-review/G5.md) |
+| 5 | ricerca nei documenti con le fonti (RAG) e soglia tarata | `g5` | [g5.md](docs/giorni/g5.md) | [G5.md](docs/ai-review/G5.md) |
+| 6 | login con JWT, documenti filtrati per ruolo, riscrittura della domanda; in corso sul branch `giorno-6` | | | |
 
 L'etichetta conserva il codice com'era alla consegna: `git checkout g2` riporta il progetto
 alla fine del Giorno 2. Nei diari si trovano le scelte di ogni giornata, le alternative
