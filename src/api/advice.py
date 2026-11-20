@@ -89,5 +89,7 @@ async def ingest(
     service: Annotated[IngestService, Depends(get_ingest_service)],
 ) -> IngestResponse:
     """Indicizza il documento con il suo livello di visibilità. Solo compliance e admin."""
-    quanti = await service.ingest(req.document_id, req.content, req.metadata, req.visibility)
+    quanti = await service.ingest(
+        req.document_id, req.content, req.metadata, req.visibility, req.branches
+    )
     return IngestResponse(chunk_count=quanti, embedding_dim=DIMENSIONI_EMBEDDING)

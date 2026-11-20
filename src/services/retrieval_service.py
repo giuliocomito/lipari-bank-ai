@@ -33,15 +33,31 @@ class RetrievalService:
         """
     )
 
-    # La stessa query con una riga in più, il filtro sui livelli che il ruolo può vedere.
+    # La stessa query con il filtro sui livelli che il ruolo può vedere e, per i documenti
+    # interni, sull'appartenenza alla filiale. Un documento interno senza filiali vale per tutta
+    # la banca; uno con filiali lo vede chi lavora in una di esse o chi sta in sede centrale
+    # (branch vuoto). Se l'utente non è nel database, la seconda EXISTS è falsa: vede di meno.
     SQL_PER_RUOLO = sql(
         """
-        SELECT id, document_id, content,
-               1 - (embedding <=> CAST(:q AS vector)) AS similarity
-        FROM document_chunks
-        WHERE 1 - (embedding <=> CAST(:q AS vector)) >= :soglia
-          AND visibility = ANY(:livelli)
-        ORDER BY embedding <=> CAST(:q AS vector)
+        SELECT c.id, c.document_id, c.content,
+               1 - (c.embedding <=> CAST(:q AS vector)) AS similarity
+        FROM document_chunks AS c
+        WHERE 1 - (c.embedding <=> CAST(:q AS vector)) >= :soglia
+          AND c.visibility = ANY(:livelli)
+          AND (
+            c.visibility <> 'internal'
+            OR NOT EXISTS (
+              SELECT 1 FROM document_branches AS d WHERE d.document_id = c.document_id
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM app_users AS u
+              LEFT JOIN document_branches AS d
+                ON d.document_id = c.document_id AND d.branch = u.branch
+              WHERE u.username = :utente AND (u.branch IS NULL OR d.branch IS NOT NULL)
+            )
+          )
+        ORDER BY c.embedding <=> CAST(:q AS vector)
         LIMIT :k
         """
     )
@@ -65,15 +81,26 @@ class RetrievalService:
         return await self._esegui(self.SQL, query_vec, top_k, soglia)
 
     async def search_for_user(
-        self, query_vec: list[float], role: str, top_k: int = 5, soglia: float | None = None
+        self,
+        query_vec: list[float],
+        role: str,
+        username: str | None = None,
+        top_k: int = 5,
+        soglia: float | None = None,
     ) -> list[RetrievalResult]:
-        """I passaggi più vicini fra quelli che il ruolo può vedere.
+        """I passaggi più vicini fra quelli che il ruolo e la filiale dell'utente possono vedere.
 
         Il filtro sta dentro la query, prima dell'ordinamento e del LIMIT: il database non
-        restituisce nemmeno i passaggi che il ruolo non può vedere.
+        restituisce nemmeno i passaggi che l'utente non può vedere. La filiale si legge dal
+        database nella stessa query, non dal token. Senza username, dei documenti interni
+        restano solo quelli che valgono per tutta la banca.
         """
         return await self._esegui(
-            self.SQL_PER_RUOLO, query_vec, top_k, soglia, livelli=visible_to(role)
+            self.SQL_PER_RUOLO,
+            query_vec,
+            top_k,
+            soglia,
+            {"livelli": visible_to(role), "utente": username},
         )
 
     async def _esegui(
@@ -82,15 +109,14 @@ class RetrievalService:
         query_vec: list[float],
         top_k: int,
         soglia: float | None,
-        livelli: list[str] | None = None,
+        filtri: dict[str, object] | None = None,
     ) -> list[RetrievalResult]:
         parametri: dict[str, object] = {
             "q": str(query_vec),
             "k": top_k,
             "soglia": SOGLIA_PREDEFINITA if soglia is None else soglia,
+            **(filtri or {}),
         }
-        if livelli is not None:
-            parametri["livelli"] = livelli
         righe = await self.session.execute(query, parametri)
         return [
             RetrievalResult(

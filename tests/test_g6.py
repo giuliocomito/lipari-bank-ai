@@ -191,8 +191,8 @@ async def test_il_canarino_non_arriva_a_marco_e_arriva_a_giulia():
 
 def test_il_filtro_sta_nella_query_prima_dell_ordinamento():
     testo = " ".join(RetrievalService.SQL_PER_RUOLO.text.split())
-    assert "AND visibility = ANY(:livelli)" in testo
-    assert testo.index("visibility") < testo.index("ORDER BY")
+    assert "AND c.visibility = ANY(:livelli)" in testo
+    assert testo.index("visibility") < testo.index("document_branches") < testo.index("ORDER BY")
 
 
 async def test_la_stessa_domanda_da_due_ruoli_da_fonti_diverse():

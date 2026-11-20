@@ -126,7 +126,7 @@ class RAGService:
             query_vec = await self.embedder.embed_one(search_query)
 
         with _cronometro(fasi, "retrieval_ms"):
-            chunks = await self.retrieval.search_for_user(query_vec, user.role)
+            chunks = await self.retrieval.search_for_user(query_vec, user.role, user.username)
 
         if chunks:
             with _cronometro(fasi, "prompt_ms"):

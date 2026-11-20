@@ -1,7 +1,7 @@
 # Contratti dell'advisor e dell'ingestione dei documenti.
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class IngestRequest(BaseModel):
@@ -11,6 +11,17 @@ class IngestRequest(BaseModel):
     # Solo i livelli che esistono: un nome sbagliato, come «compliance-only», darebbe passaggi
     # che nessun ruolo vede, e il documento sparirebbe senza errori. Così è un 422.
     visibility: Literal["public", "internal", "risk_only", "compliance_only"] = "public"
+    # Estensione del Giorno 6: le filiali a cui appartiene un documento interno. Vuoto, il
+    # documento vale per tutta la banca.
+    branches: list[Annotated[str, Field(pattern=r"^[A-Z0-9]{2,16}$")]] = Field(
+        default_factory=list, max_length=50
+    )
+
+    @model_validator(mode="after")
+    def filiali_solo_per_interni(self) -> "IngestRequest":
+        if self.branches and self.visibility != "internal":
+            raise ValueError("le filiali si assegnano solo ai documenti internal")
+        return self
 
 
 class IngestResponse(BaseModel):

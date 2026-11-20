@@ -33,7 +33,7 @@ async def main() -> None:
         for path in percorsi:
             # la lettura del file è bloccante, quindi la coroutine la delega a un thread
             content = await asyncio.to_thread(path.read_text, encoding="utf-8")
-            visibility = path.parent.name if path.parent != docs_dir else "public"
+            visibility, branches = livello_e_filiali(path.relative_to(docs_dir))
             response = await client.post(
                 f"{API}/api/ai/documents/ingest",
                 headers={"Authorization": f"Bearer {token}"},
@@ -41,10 +41,26 @@ async def main() -> None:
                     "document_id": path.stem,
                     "content": content,
                     "visibility": visibility,
+                    "branches": branches,
                     "metadata": {"source": str(path), "title": path.stem.replace("_", " ")},
                 },
             )
-            print(f"{path.name} [{visibility}]: {response.status_code} {response.json()}")
+            dove = f"{visibility} {','.join(branches)}".strip()
+            print(f"{path.name} [{dove}]: {response.status_code} {response.json()}")
+
+
+def livello_e_filiali(relativo: Path) -> tuple[str, list[str]]:
+    """Dal percorso dentro data/docs: livello di visibilità e filiali.
+
+    data/docs/x.md è pubblico; data/docs/<livello>/x.md ha quel livello; dal Giorno 6
+    data/docs/internal/<FILIALE>/x.md è interno e appartiene a quella filiale.
+    """
+    cartelle = relativo.parts[:-1]
+    if not cartelle:
+        return "public", []
+    if cartelle[0] == "internal" and len(cartelle) > 1:
+        return "internal", [cartelle[1]]
+    return cartelle[0], []
 
 
 if __name__ == "__main__":
