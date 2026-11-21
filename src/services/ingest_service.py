@@ -1,7 +1,7 @@
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import DocumentChunk
+from src.db.models import DocumentBranch, DocumentChunk
 from src.lib.chunking import chunk_text
 from src.llm.embedding_client import EmbeddingClient
 
@@ -26,15 +26,26 @@ class IngestService:
         self.embedder = embedder
 
     async def ingest(
-        self, document_id: str, text: str, metadata: dict[str, str] | None = None
+        self,
+        document_id: str,
+        text: str,
+        metadata: dict[str, str] | None = None,
+        visibility: str = "public",
+        branches: list[str] | None = None,
     ) -> int:
         """Indicizza il testo e restituisce il numero di passaggi scritti.
 
-        Se il `document_id` esiste già, i suoi passaggi vengono cancellati nella stessa
-        transazione e sostituiti.
+        Se il `document_id` esiste già, i suoi passaggi e le sue filiali vengono cancellati
+        nella stessa transazione e sostituiti.
         """
         await self.session.execute(
             delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+        )
+        await self.session.execute(
+            delete(DocumentBranch).where(DocumentBranch.document_id == document_id)
+        )
+        self.session.add_all(
+            DocumentBranch(document_id=document_id, branch=b) for b in dict.fromkeys(branches or [])
         )
 
         pezzi = chunk_text(senza_ripetizioni(text))
@@ -53,6 +64,7 @@ class IngestService:
                         content=testo,
                         embedding=vettore,
                         chunk_metadata=metadata or {},
+                        visibility=visibility,  # ogni passaggio eredita il livello del documento
                     )
                     for i, (testo, vettore) in enumerate(zip(lotto, vettori, strict=True))
                 ]

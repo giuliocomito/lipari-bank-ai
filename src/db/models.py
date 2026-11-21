@@ -124,3 +124,35 @@ class DocumentChunk(Base):
     embedding: Mapped[list[float]] = mapped_column(Vector(DIMENSIONI_EMBEDDING))
     # SQLAlchemy riserva il nome «metadata» alla classe base.
     chunk_metadata: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    # Dal Giorno 6: chi può vedere il passaggio. È nel WHERE di ogni ricerca, da qui l'indice.
+    # Con server_default la migrazione assegna «public» ai passaggi già presenti.
+    visibility: Mapped[str] = mapped_column(
+        String(32), default="public", server_default="public", index=True
+    )
+
+
+class AppUser(Base):
+    """Chi usa il sistema, con il ruolo che decide quali documenti vede."""
+
+    __tablename__ = "app_users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=gen_uuid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(128))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(32), default="operator")
+    # Estensione del Giorno 6: la filiale in cui lavora. Vuota per chi sta in sede centrale,
+    # che vede i documenti interni di tutte le filiali.
+    branch: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class DocumentBranch(Base):
+    """Le filiali a cui appartiene un documento interno. Senza righe, vale per tutta la banca."""
+
+    __tablename__ = "document_branches"
+
+    document_id: Mapped[str] = mapped_column(String, primary_key=True)
+    branch: Mapped[str] = mapped_column(String(16), primary_key=True, index=True)

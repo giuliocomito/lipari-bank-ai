@@ -31,15 +31,26 @@ def modelli_finti() -> Iterator[None]:
 
     Un modello vero costerebbe e risponderebbe ogni volta in modo diverso. La chat usa un finto
     che ripete la domanda, la categorizzazione la regola a parole chiave, gli embedding sono finti
-    ma coerenti. Un test che ha bisogno di un modello preciso installa il suo e poi toglie solo
-    quello."""
+    ma coerenti. Dal Giorno 6 chi chiede è Marco, operatore, senza token, e la domanda arriva al
+    recupero senza riscrittura; i test dell'autenticazione rimettono il login vero. Un test che
+    ha bisogno di un modello preciso installa il suo e poi toglie solo quello."""
+    from src.api.advice import get_rewriter
     from src.api.categorize import get_categorize_service
+    from src.auth.deps import get_current_user
     from src.llm.factory import get_embedder, get_llm_provider
     from src.main import app
-    from tests.finti import CategorizzazioneARegole, ModelloEco, embedder_finto
+    from tests.finti import (
+        MARCO,
+        CategorizzazioneARegole,
+        ModelloEco,
+        embedder_finto,
+        riscrittore_spento,
+    )
 
     app.dependency_overrides[get_llm_provider] = ModelloEco
     app.dependency_overrides[get_categorize_service] = CategorizzazioneARegole
     app.dependency_overrides[get_embedder] = embedder_finto
+    app.dependency_overrides[get_rewriter] = riscrittore_spento
+    app.dependency_overrides[get_current_user] = lambda: MARCO
     yield
     app.dependency_overrides.clear()

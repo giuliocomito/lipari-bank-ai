@@ -1,9 +1,14 @@
-# Advisor sui documenti e ingestione dei documenti che lo alimentano.
+# Advisor sui documenti, autenticato, filtrato per ruolo e limitato per utente; e ingestione.
+from functools import cache
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.deps import UserContext, get_current_user, require_role
+from src.auth.tokens import decode_token
 from src.config import settings
 from src.db.models import DIMENSIONI_EMBEDDING
 from src.db.repos import ChatRepository
@@ -12,6 +17,7 @@ from src.llm.client import LLMProvider
 from src.llm.embedding_client import EmbeddingClient
 from src.llm.factory import get_embedder, get_llm_provider
 from src.llm.prompt import load_prompt
+from src.llm.rewriter import QueryRewriter
 from src.observability.cost_tracker import CostTracker
 from src.services.ingest_service import IngestService
 from src.services.rag_service import RAGService
@@ -22,13 +28,36 @@ router = APIRouter(prefix="/api/ai", tags=["Advice"])
 PROMPT = load_prompt("advice_system_v1")
 
 
+def per_utente(request: Request) -> str:
+    """La chiave del limite di richieste: l'utente del token, non l'indirizzo IP."""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    try:
+        return str(decode_token(token)["sub"])
+    except HTTPException:
+        return get_remote_address(request)  # senza un token valido arriverà comunque un 401
+
+
+limiter = Limiter(key_func=per_utente)
+
+
+@cache  # uno per processo, perché la cache delle riscritture deve sopravvivere alla richiesta
+def get_rewriter() -> QueryRewriter:
+    return QueryRewriter(get_llm_provider(), load_prompt("rewrite_system_v1"))
+
+
 def get_rag_service(
     session: Annotated[AsyncSession, Depends(get_db)],
     embedder: Annotated[EmbeddingClient, Depends(get_embedder)],
     llm: Annotated[LLMProvider, Depends(get_llm_provider)],
+    rewriter: Annotated[QueryRewriter, Depends(get_rewriter)],
 ) -> RAGService:
     return RAGService(
-        RetrievalService(session), embedder, llm, PROMPT, settings.max_tokens_per_request
+        RetrievalService(session),
+        embedder,
+        llm,
+        rewriter,
+        PROMPT,
+        settings.max_tokens_per_request,
     )
 
 
@@ -40,20 +69,27 @@ def get_ingest_service(
 
 
 @router.post("/advice", response_model=AdviceResponse, summary="Risponde sui documenti")
+@limiter.limit("15/minute")
 async def advice(
+    request: Request,  # slowapi legge la chiave del limite dalla richiesta
     req: AdviceRequest,
+    user: Annotated[UserContext, Depends(get_current_user)],
     service: Annotated[RAGService, Depends(get_rag_service)],
     session: Annotated[AsyncSession, Depends(get_db)],  # la stessa sessione del servizio
 ) -> AdviceResponse:
     # Il tetto di spesa della chat vale anche qui: ogni chiamata al modello ha un costo.
     await CostTracker(ChatRepository(session), settings.daily_budget_eur).verifica()
-    return await service.advise(req)
+    return await service.advise(req.question, user)
 
 
 @router.post("/documents/ingest", response_model=IngestResponse, summary="Indicizza un documento")
 async def ingest(
-    req: IngestRequest, service: Annotated[IngestService, Depends(get_ingest_service)]
+    req: IngestRequest,
+    user: Annotated[UserContext, Depends(require_role("compliance_lead", "admin"))],
+    service: Annotated[IngestService, Depends(get_ingest_service)],
 ) -> IngestResponse:
-    """Indicizza il documento. È lento e, finché manca l'autenticazione, aperto a chiunque."""
-    quanti = await service.ingest(req.document_id, req.content, req.metadata)
+    """Indicizza il documento con il suo livello di visibilità. Solo compliance e admin."""
+    quanti = await service.ingest(
+        req.document_id, req.content, req.metadata, req.visibility, req.branches
+    )
     return IngestResponse(chunk_count=quanti, embedding_dim=DIMENSIONI_EMBEDDING)
