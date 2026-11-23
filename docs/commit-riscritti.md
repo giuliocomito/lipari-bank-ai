@@ -2,12 +2,13 @@
 
 [Torna al README](../README.md)
 
-Il 16 novembre 2026, prima di pubblicare il repository, ho riscritto gli otto commit dei
-primi tre giorni per adottare Conventional Commits e sostituire la mia email con l'indirizzo
-anonimo di GitHub. I file sono identici, ma i codici dei commit sono cambiati, e le consegne
-dei Giorni 1-3 citano quelli vecchi.
+Il 16 novembre 2026, prima di pubblicare il repository, ho riscritto gli otto commit dei primi
+tre giorni per adottare la convenzione Conventional Commits e per sostituire il mio indirizzo
+email con l'indirizzo anonimo fornito da GitHub. Il contenuto dei file è rimasto identico, ma i
+codici dei commit sono cambiati, mentre le consegne dei Giorni 1-3 citano ancora quelli
+precedenti.
 
-| Codice citato nelle consegne | Codice attuale | Commit |
+| Codice citato nelle consegne | Codice attuale | Messaggio del commit |
 |---|---|---|
 | `fb0d28e` | `d5b7226` | feat(g1): setup del progetto |
 | `9487394` | `8af6262` | docs(g1): README per un estraneo, .env.example verificato, revisione |
